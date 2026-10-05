@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  自适应图标。前景是本项目图标（粉底圆形插画）缩放到 108dp 画布中 72dp 的安全区，
-  四周留透明；底色取同一粉色 #FEB9D4，因此系统裁圆后边缘无缝。
+  圆形图标。原图本身就是圆形构图，因此与方形版本共用同一套背景与前景定义，
+  由系统按圆形遮罩呈现，不做二次裁切。
 -->
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
     <background android:drawable="@color/ic_launcher_background" />
