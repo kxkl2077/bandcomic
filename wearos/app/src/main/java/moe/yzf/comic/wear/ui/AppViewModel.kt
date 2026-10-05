@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -11,7 +12,10 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import moe.yzf.comic.wear.data.download.DownloadRequest
+import moe.yzf.comic.wear.data.download.DownloadState
 import moe.yzf.comic.wear.data.model.BookEntry
+import moe.yzf.comic.wear.data.model.CachedComic
 import moe.yzf.comic.wear.data.model.ComicDetail
 import moe.yzf.comic.wear.data.model.ComicSource
 import moe.yzf.comic.wear.data.store.AppSettings
@@ -51,11 +55,13 @@ class AppViewModel(private val container: AppContainer) : ViewModel() {
             val sources = container.sourceStore.list()
             val current = container.sourceStore.current()
             val history = container.searchHistoryStore.list()
+            val cached = container.cacheStore.list()
             withContext(Dispatchers.Main) {
                 _shelf.value = shelf
                 _sources.value = sources
                 _currentSource.value = current
                 _searchHistory.value = history
+                _cachedComics.value = cached
             }
         }
     }
@@ -120,6 +126,79 @@ class AppViewModel(private val container: AppContainer) : ViewModel() {
 
     fun progressOf(id: String, sourceKey: String): BookEntry? =
         _shelf.value.firstOrNull { it.id == id && it.sourceKey == sourceKey }
+
+    // ---- 本地缓存（原版 pages/download + pages/offline 的「本地漫画」） ----
+
+    val downloadState: StateFlow<DownloadState> = container.downloader.state
+
+    private val _cachedComics = MutableStateFlow<List<CachedComic>>(emptyList())
+    val cachedComics: StateFlow<List<CachedComic>> = _cachedComics.asStateFlow()
+
+    private var downloadJob: Job? = null
+
+    private fun reloadCache() {
+        _cachedComics.value = container.cacheStore.list()
+    }
+
+    /** 下载过程只改索引，列表要等整批结束再刷新，避免每页都重排。 */
+    fun refreshCache() {
+        viewModelScope.launch(Dispatchers.IO) { withContext(Dispatchers.Main) { reloadCache() } }
+    }
+
+    fun startDownload(request: DownloadRequest) {
+        if (downloadJob?.isActive == true) return
+        val settings = settings.value
+        downloadJob = viewModelScope.launch(Dispatchers.IO) {
+            try {
+                container.downloader.run(
+                    request = request,
+                    imageSize = settings.imageSize,
+                    imageQuality = settings.imageQuality,
+                    usePng = settings.imageUsePng,
+                )
+            } finally {
+                withContext(Dispatchers.Main) { reloadCache() }
+            }
+        }
+    }
+
+    /** 对应原版 `cancelDownload`：离开下载页即中止，已下好的页保留。 */
+    fun cancelDownload() {
+        downloadJob?.cancel()
+        downloadJob = null
+    }
+
+    fun resetDownloadState() {
+        container.downloader.reset()
+    }
+
+    fun deleteCached(id: String, sourceKey: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            container.cacheStore.remove(id, sourceKey)
+            container.cacheStore.deleteComicFiles(sourceKey, id)
+            withContext(Dispatchers.Main) { reloadCache() }
+        }
+    }
+
+    /**
+     * 本地已缓存的页文件，按页码升序；没缓存过返回空表。
+     * 阅读器靠它决定「离线读本地」还是「在线拉接口」。
+     */
+    fun localPages(comicId: String, chapter: Int): List<java.io.File> {
+        val cached = container.cacheStore.findAny(comicId, _currentSource.value?.key) ?: return emptyList()
+        return container.cacheStore.existingPages(cached.sourceKey, cached.id, chapter)
+    }
+
+    /** 某本漫画已缓存（有页）的章节号，供选择页打标。 */
+    fun cachedChapterNums(comicId: String, sourceKey: String): Set<Int> =
+        container.cacheStore.find(comicId, sourceKey)?.downloadedChapterNums() ?: emptySet()
+
+    fun cachedComic(comicId: String, sourceKey: String): CachedComic? =
+        container.cacheStore.find(comicId, sourceKey)
+
+    /** 本地封面文件；没下到封面返回 null，调用方回落到源地址。 */
+    fun cacheCoverFile(comic: CachedComic): java.io.File? =
+        container.cacheStore.coverFile(comic.sourceKey, comic.id).takeIf { it.exists() }
 
     fun updateSettings(transform: (AppSettings) -> AppSettings) {
         viewModelScope.launch(Dispatchers.IO) { container.settingsStore.update(transform) }

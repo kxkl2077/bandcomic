@@ -107,6 +107,34 @@
     <string name="time_hours_ago">%1$d小时前</string>
     <string name="time_days_ago">%1$d天前</string>
 
+    <!-- 缓存下载（文案对齐原版 src/i18n/zh-CN.json 的 download.*） -->
+    <string name="download_title">下载漫画</string>
+    <string name="download_downloading">正在下载</string>
+    <string name="download_complete">下载完成</string>
+    <string name="download_page">第 %1$d/%2$d 页</string>
+    <string name="download_queue">(%1$d/%2$d)</string>
+    <string name="download_select_all">全选</string>
+    <string name="download_deselect_all">反选</string>
+    <string name="download_start">开始下载</string>
+    <string name="download_select_at_least_one">请至少选择一个章节</string>
+    <string name="download_all_complete">全部下载完成</string>
+    <string name="download_all_failed">全部下载失败</string>
+    <string name="download_summary_with_failed">下载完成 %1$d/%2$d 章，失败章节：%3$s</string>
+    <string name="download_failed">下载失败</string>
+    <string name="download_chapter_select">选择章节</string>
+
+    <!-- 本地漫画（文案对齐原版 offline.offline / storage / size 等） -->
+    <string name="cache_title">本地漫画</string>
+    <string name="cache_empty">空空如也</string>
+    <string name="cache_loading">加载中...</string>
+    <string name="cache_size">大小</string>
+    <string name="cache_used">已缓存 %1$s</string>
+    <string name="cache_delete_confirm">再次点击删除</string>
+    <string name="cache_deleting">正在删除···</string>
+    <string name="cache_deleted">已删除！</string>
+    <string name="cache_delete_failed">删除失败：%1$s</string>
+    <string name="cache_incomplete">未下载完</string>
+
     <string name="storage_file_recovered">文件损坏，已备份并重置：%1$s</string>
 
     <!-- 通用动作 -->

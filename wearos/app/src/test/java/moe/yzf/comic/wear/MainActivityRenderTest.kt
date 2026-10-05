@@ -63,4 +63,13 @@ class MainActivityRenderTest {
         // 空历史时展示引导文案，说明首页确实落在 index 形态
         assertTextPresent(rule.activity.getString(R.string.home_tip))
     }
+
+    @Test
+    fun 首页底部渲染缓存与历史两个入口() {
+        rule.waitForIdle()
+        // 缓存入口与阅读历史入口都带文字标签，避免圆屏上图标语义不明；
+        // GlyphDownload 也在这条路径上被真实绘制一次。
+        assertTextPresent(rule.activity.getString(R.string.cache_title))
+        assertTextPresent(rule.activity.getString(R.string.history_title))
+    }
 }

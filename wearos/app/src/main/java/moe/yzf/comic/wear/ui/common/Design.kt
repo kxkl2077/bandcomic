@@ -215,3 +215,25 @@ fun GlyphMore(color: Color, size: Dp = Dim.icon, modifier: Modifier = Modifier) 
         xs.forEach { x -> drawCircle(color, r, Offset(x, cy)) }
     }
 }
+
+/**
+ * 缓存：向下箭头 + 承接托盘。语义对应原版 album.ux 的下载按钮，
+ * 也用于首页进入本地漫画列表的入口。
+ */
+@Composable
+fun GlyphDownload(color: Color, size: Dp = Dim.icon, modifier: Modifier = Modifier) {
+    Canvas(modifier.size(size)) {
+        val sw = this.size.width * 0.14f
+        val w = this.size.width
+        val h = this.size.height
+        // 箭杆
+        drawLine(color, Offset(w * 0.5f, h * 0.12f), Offset(w * 0.5f, h * 0.62f), sw, StrokeCap.Round)
+        // 箭头
+        drawLine(color, Offset(w * 0.28f, h * 0.42f), Offset(w * 0.5f, h * 0.64f), sw, StrokeCap.Round)
+        drawLine(color, Offset(w * 0.72f, h * 0.42f), Offset(w * 0.5f, h * 0.64f), sw, StrokeCap.Round)
+        // 托盘
+        drawLine(color, Offset(w * 0.16f, h * 0.72f), Offset(w * 0.16f, h * 0.88f), sw, StrokeCap.Round)
+        drawLine(color, Offset(w * 0.16f, h * 0.88f), Offset(w * 0.84f, h * 0.88f), sw, StrokeCap.Round)
+        drawLine(color, Offset(w * 0.84f, h * 0.88f), Offset(w * 0.84f, h * 0.72f), sw, StrokeCap.Round)
+    }
+}

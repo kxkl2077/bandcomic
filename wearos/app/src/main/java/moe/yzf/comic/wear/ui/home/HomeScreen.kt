@@ -1,5 +1,6 @@
 package moe.yzf.comic.wear.ui.home
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -36,6 +38,7 @@ import moe.yzf.comic.wear.ui.AppViewModel
 import moe.yzf.comic.wear.ui.common.Dim
 import moe.yzf.comic.wear.ui.common.GlyphChevron
 import moe.yzf.comic.wear.ui.common.GlyphCycle
+import moe.yzf.comic.wear.ui.common.GlyphDownload
 import moe.yzf.comic.wear.ui.common.GlyphMore
 import moe.yzf.comic.wear.ui.common.GlyphPencil
 import moe.yzf.comic.wear.ui.common.GlyphTrash
@@ -59,6 +62,7 @@ fun HomeScreen(
     onOpenAbout: () -> Unit,
     onOpenEdit: () -> Unit,
     onOpenHistory: () -> Unit,
+    onOpenCache: () -> Unit,
     onOpenSearch: (String) -> Unit,
     onOpenDetail: (String) -> Unit,
     onNeedInput: () -> Unit,
@@ -189,17 +193,49 @@ fun HomeScreen(
             }
         }
 
-        // 圆屏底部居中的「更多」按钮（原版 /common/more_s4.png → offline）
-        GlyphMore(
+        // 圆屏底部：两个带文字的入口。
+        // 原版这一处只有一个图标按钮（更多），现在多了一个目的地，
+        // 圆屏底部越往下可用弦宽越窄，横排两个放不下，因此竖排并补上文字，
+        // 避免图标语义不明。
+        Column(
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 6.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            BottomEntry(
+                glyph = { GlyphDownload(color = Palette.TextPrimary, size = 13.dp) },
+                label = stringResource(R.string.cache_title),
+                onClick = onOpenCache,
+            )
+            Spacer(Modifier.height(4.dp))
+            BottomEntry(
+                glyph = { GlyphMore(color = Palette.TextPrimary, size = 13.dp) },
+                label = stringResource(R.string.history_title),
+                onClick = onOpenHistory,
+            )
+        }
+    }
+}
+
+/** 底部入口胶囊：小图标 + 文字。 */
+@Composable
+private fun BottomEntry(glyph: @Composable () -> Unit, label: String, onClick: () -> Unit) {
+    Row(
+        modifier =
+            Modifier
+                .clip(RoundedCornerShape(percent = 50))
+                .background(Palette.Surface80)
+                .clickable { onClick() }
+                .padding(horizontal = 9.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        glyph()
+        Spacer(Modifier.width(4.dp))
+        androidx.wear.compose.material3.Text(
+            text = label,
             color = Palette.TextPrimary,
-            size = 18.dp,
-            modifier =
-                Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 4.dp)
-                    .clip(androidx.compose.foundation.shape.RoundedCornerShape(8.dp))
-                    .clickable { onOpenHistory() }
-                    .padding(6.dp),
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
         )
     }
 }

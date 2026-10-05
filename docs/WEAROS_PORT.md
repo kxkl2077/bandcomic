@@ -146,12 +146,19 @@ wearos/
       │     ├─ detail/DetailScreen.kt
       │     ├─ reader/ReaderScreen.kt
       │     ├─ history/HistoryScreen.kt    阅读历史（原版在 offline.ux 的其中一个标签页）
+      │     ├─ cache/CacheScreen.kt        本地漫画（原版 offline.ux 的另一个标签页）
+      │     ├─ download/DownloadScreen.kt  章节选择 + 下载进度（原版 download.ux）
       │     ├─ sources/SourcesScreen.kt
       │     └─ about/AboutScreen.kt        关于 + 设置（原版同页）
-      └─ test/java/moe/yzf/comic/wear/ProtocolContractTest.kt
+      └─ test/java/moe/yzf/comic/wear/
+            ├─ TestHttpServer.kt           零依赖本地 HTTP 服务（下载用例的靶子）
+            ├─ ProtocolContractTest.kt
+            ├─ StorePersistenceTest.kt
+            ├─ CacheStoreTest.kt
+            └─ DownloaderTest.kt
 ```
 
-规模：32 个 Kotlin 文件 / 约 4100 行（不含测试）。
+规模：36 个 Kotlin 文件 / 约 5300 行（不含测试；测试另有 10 个文件 / 约 1400 行）。
 
 ---
 
@@ -386,20 +393,22 @@ Wear Compose Material3 1.7.0 与手机版差异很大，以下都是**从 AAR �
 
 ### 8.2 自动化测试总览
 
-7 个测试套件 / 41 个用例，全部跑在 JVM 上（不需要真机或模拟器）：
+9 个测试套件 / 74 个用例，全部跑在 JVM 上（不需要真机或模拟器）：
 
 | 套件 | 用例 | 覆盖内容 |
 | --- | --- | --- |
+| `CacheStoreTest` | 19 | 缓存目录布局、索引跨实例持久化、按源隔离、真实文件数重扫、完整/部分判定、目录占用统计 |
+| `DownloaderTest` | 13 | **起真实 HTTP 服务 + 落真实文件**：整章下载、断点续传、单页重试、确定性 4xx 不重试、整章失败隔离、取消语义 |
 | `ProtocolContractTest` | 11 | 真实报文的协议解析、URL 构造（含补协议回归）、图片参数边界 |
 | `StorePersistenceTest` | 10 | 真实文件读写、跨实例持久化、原子写、损坏自愈 |
 | `AppLaunchTest` | 6 | 真实 Application 启动、容器装配、默认值、UA 形状 |
 | `AppViewModelTest` | 6 | 状态流接线、书架进度、搜索历史、源切换 |
+| `MainActivityRenderTest` | 5 | 真实 Activity 组合渲染（zh-rCN 227dp 圆屏）、首页标题/输入占位/当前源/引导文案/底部双入口 |
 | `SettingsStoreTest` | 3 | DataStore 往返、越界钳制、默认值 |
-| `MainActivityRenderTest` | 4 | 真实 Activity 组合渲染（zh-rCN 227dp 圆屏）、首页标题/输入占位/当前源/引导文案 |
 | `RobolectricSmokeTest` | 1 | Robolectric 在最简路径上可用 |
 
 ```
-:app:testDebugUnitTest  →  tests=41  failures=0  errors=0  skipped=0
+:app:testDebugUnitTest  →  tests=74  failures=0  errors=0  skipped=0
 ```
 
 ### 8.3 运行时验证（Robolectric）
@@ -497,6 +506,41 @@ SDK 里没有可用的 Wear 系统镜像。
   所以搜索/详情/正文的真实请求尚未在设备上跑通，协议保真度依据的是主机侧实测（见 8.1）。
 - **功耗与内存**。整话几十页图片在手表上的表现。
 
+### 8.6 真机端到端实测（缓存 / 下载）
+
+手表仍无法联网，因此这一轮把 APK 装到一台**手机**（OPPO PKG110 / Android 17 / SDK 37）
+上做真实链路验证——链路本身与屏幕尺寸无关，手机能跑通即证明代码可用。
+
+**下载闭环已跑通，用的是用户自己的源**（`comic.kxkl2024.cn` / CopyManga）：
+
+```
+files/comics/CopyManga_biedangounijiangle/1/  →  1 … 14（14 个真实 JPEG，30–70 KB）
+files/comics/CopyManga_biedangounijiangle/cover
+```
+
+索引 `files/store/comic_cache.json` 与之严格一致：
+
+```json
+{"id":"biedangounijiangle","sourceKey":"CopyManga","name":"別當歐尼醬了！",
+ "totalChapters":133,
+ "chapters":[{"num":1,"name":"第01话","pageCount":14,"downloaded":14}],
+ "size":662903}
+```
+
+即：**「页数 14 / 已下载 14」与磁盘上 14 个文件完全对应**，`size` 是真实递归统计值
+（不是估算）。手工走了一遍 UI：首页 →「下载漫画」入口 → 详情页「下载漫画」按钮 →
+章节网格 → 全选（格子变绿、按钮翻成「反选」、右侧变「开始下载(1)」）→ 开始下载。
+
+**MangaDex 侧的对照观察**：拿搜索结果里的 `ONE`（id `5b0a8d2f-…`）试同样流程，
+只落了 `cover`，章节目录没建。查索引是
+`{"num":1,"name":"","pageCount":0,"downloaded":0}`——该条目在**详情页本身的「页数」就是 0**，
+即 MangaDex 这条记录没有可下的图片章节，属于源数据特性而非下载器缺陷。已确认源码/取不到图时
+`Downloader` 会正常走「整章失败」分支并在 `Finished.failed` 里回报，不会留下半截脏数据。
+
+**顺带说清一个误判**：`/photo/...` 对 `comic.kxkl2024.cn` 返回 503 的问题（见 4.2）
+只出现在**主机侧**探测时；设备侧用真实 UA/Referer/Cookie 请求同一源可以正常取图。
+即该 503 是服务端按请求特征做的风控，不是协议实现错误。
+
 ---
 
 ## 9. 构建与安装
@@ -516,7 +560,7 @@ cd wearos
 adb install -r wearos\app\build\outputs\apk\debug\app-debug.apk
 ```
 
-单测（41 个用例，JVM 上跑，不需要设备）：
+单测（74 个用例，JVM 上跑，不需要设备）：
 
 ```powershell
 .\gradlew.bat :app:testDebugUnitTest
@@ -529,19 +573,67 @@ adb install -r wearos\app\build\outputs\apk\debug\app-debug.apk
 
 ---
 
-## 10. 本期未做（v1 范围外）
+## 10. 下载与离线库
+
+原版把「下载」和「离线」拆成 `pages/download` 与 `pages/offline` 两个页面，
+本移植沿用同一分工：`download/DownloadScreen.kt`（选章 + 进度）与
+`cache/CacheScreen.kt`（已下内容的管理）。核心逻辑在
+`data/download/Downloader.kt` 与 `data/store/CacheStore.kt`，两者都不依赖 Android 框架，
+因此能在 JVM 上被真实地测（见 8.2）。
+
+### 10.1 与原版逐条对齐的行为
+
+- **章节窗口 18 章**、每行 3 格（`LazyVerticalGrid(GridCells.Fixed(3))`），
+  格子圆角与描边取自原版 `download.ux` 的 `.chapter-item`。
+- **三态配色**（且 `dl-full`/`dl-partial` 必须排在 `selected` 之前，否则选中态压不住）：
+  完成 `#17394D` + 边框 `#4FC3F7`；部分 `#4D3A17` + 边框 `#FFA726`；选中 `#4CAF50`。
+- **全选 / 反选两态按钮** + `开始下载(N)`，两枚叠放在圆屏底部。
+- **进度文案**复用原版键：`第 {page}/{total_page} 页`、百分比由 `page/page_count` 取整。
+- **串行下载**，`MAX_RETRY = 3`；HTTP 4xx（408/429 除外）视为确定性错误立即放弃重试。
+- **退出页面即取消**：`DisposableEffect` 在 `onDispose` 调 `cancelDownload()`。
+- **封面单独存**（`{comicDir}/cover`），不随章节目录走。
+
+### 10.2 存储布局
+
+```
+files/comics/{sourceKey}_{comicId}/cover          封面
+files/comics/{sourceKey}_{comicId}/{章节号}/{页码}  正文页
+files/store/comic_cache.json                      索引
+```
+
+`sourceKey` 参与目录名，因此同名 id 在不同源下互不覆盖（有专门用例钉死）。
+
+**与快应用版的一处有意偏离**：原版章节目录名是 `{num}　{name}`（全角空格分隔）,
+本移植只用 `{num}`，章节名存索引里。理由是 Wear 侧不需要与 Vela 的下载产物互操作，
+少一层名字清洗就少一类跨文件系统非法字符问题（`sanitize` 仍然作用于目录名）。
+
+### 10.3 取消语义（本轮修掉的两个真问题）
+
+写测试时暴露了两个**看起来能跑、实际不对**的缺陷，都已修复并被用例覆盖：
+
+1. **取消不生效**。`OkHttp` 的 `execute()` 是阻塞调用，协程取消打不断它；
+   原先取消只在整批结束后才被观察到，等于「离开页面」这个用户契约是假的。
+   现已在**每一章、每一页的边界**插入 `currentCoroutineContext().ensureActive()`，
+   最坏情况是当前页请求返回后立即停下，而不是继续下完整批。
+2. **取消后索引与磁盘不一致**。原先 `finalize()` 只回写占用大小，不重扫页数，
+   于是取消时「磁盘上已有 1 页、索引写 0 页」——界面会显示未缓存，下次下载还会重下这页。
+   现在 `finalize()` 会**按磁盘真实文件数重扫每一章**再回写，因此无论正常结束还是取消，
+   索引都等于磁盘真相。这同时让「断点续传」不依赖运行期内存的计数，另一个进程写过的文件也认。
+
+### 10.4 本轮未做（仍属 v1 范围外）
 
 按约定，以下能力不在本次移植范围内：
 
-- 漫画下载与离线库
 - AstroBox / 网桥互联
 - OOBE 引导流程
 - 应用内检查更新
+- 后台/定时下载、仅 Wi-Fi 下载、并发多章下载、下载队列续传（关闭 App 后重启继续）
 
-### 10.1 已知限制
+### 10.5 已知限制
 
-- **未在真机或真实模拟器上运行过**（原因见 8.5）。逻辑与组合层已由 Robolectric
-  覆盖，但 **GPU 实际渲染、表冠手感、真机网络与磁盘缓存命中率**仍是未知项。
+- **Wear OS 手表上未跑过界面**（原因见 8.5）。逻辑与组合层已由 Robolectric 覆盖，
+  下载链路已在手机真机上端到端跑通（见 8.6），但 **GPU 实际渲染、表冠手感、
+  圆屏裁切**仍是未知项。
 - 阅读器浮层在圆形表盘上最多 6 个按钮，小屏机型可能需要滑动才能看全。
 - 连续模式只做「向前预加载 2 页」，不做整话批量预取——
   手表的带宽和存储都不适合一次性拉几十页。

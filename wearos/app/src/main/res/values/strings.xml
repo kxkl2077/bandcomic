@@ -107,6 +107,34 @@
     <string name="time_hours_ago">%1$dh ago</string>
     <string name="time_days_ago">%1$dd ago</string>
 
+    <!-- Cache / download (wording mirrors the original src/i18n/defaults.json) -->
+    <string name="download_title">Download</string>
+    <string name="download_downloading">Downloading</string>
+    <string name="download_complete">Completed</string>
+    <string name="download_page">Page %1$d/%2$d</string>
+    <string name="download_queue">(%1$d/%2$d)</string>
+    <string name="download_select_all">Select all</string>
+    <string name="download_deselect_all">Invert</string>
+    <string name="download_start">Start</string>
+    <string name="download_select_at_least_one">Select at least one chapter</string>
+    <string name="download_all_complete">All downloads complete</string>
+    <string name="download_all_failed">All downloads failed</string>
+    <string name="download_summary_with_failed">Downloaded %1$d/%2$d, failed: %3$s</string>
+    <string name="download_failed">Download failed</string>
+    <string name="download_chapter_select">Select chapters</string>
+
+    <!-- Local comics -->
+    <string name="cache_title">Local comics</string>
+    <string name="cache_empty">Nothing here yet</string>
+    <string name="cache_loading">Loading...</string>
+    <string name="cache_size">Size</string>
+    <string name="cache_used">Cached %1$s</string>
+    <string name="cache_delete_confirm">Tap again to delete</string>
+    <string name="cache_deleting">Deleting...</string>
+    <string name="cache_deleted">Deleted!</string>
+    <string name="cache_delete_failed">Delete failed: %1$s</string>
+    <string name="cache_incomplete">Incomplete</string>
+
     <string name="storage_file_recovered">File corrupted, backed up and reset: %1$s</string>
 
     <!-- Generic actions -->

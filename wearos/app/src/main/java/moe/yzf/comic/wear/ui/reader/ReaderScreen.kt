@@ -51,7 +51,6 @@ import coil3.compose.rememberAsyncImagePainter
 import kotlinx.coroutines.launch
 import moe.yzf.comic.wear.R
 import moe.yzf.comic.wear.data.model.BookEntry
-import moe.yzf.comic.wear.data.model.ChapterImages
 import moe.yzf.comic.wear.data.net.addImageParams
 import moe.yzf.comic.wear.ui.AppViewModel
 import moe.yzf.comic.wear.ui.common.CenterMessage
@@ -63,6 +62,14 @@ import moe.yzf.comic.wear.ui.common.TitleText
 import moe.yzf.comic.wear.ui.common.errorText
 import moe.yzf.comic.wear.ui.common.rememberClockText
 import moe.yzf.comic.wear.ui.common.toast
+import java.io.File
+
+/** 一页的来源：本地缓存文件，或在线图片地址。 */
+private sealed interface PageSrc {
+    data class Local(val file: File) : PageSrc
+
+    data class Remote(val url: String) : PageSrc
+}
 
 /**
  * 阅读器，对应原版 pages/photo/photo.ux。
@@ -85,7 +92,7 @@ fun ReaderScreen(
     val context = LocalContext.current
     val settings by viewModel.settings.collectAsState()
     var chapter by remember { mutableIntStateOf(startChapter) }
-    var images by remember { mutableStateOf<ChapterImages?>(null) }
+    var pages by remember { mutableStateOf<List<PageSrc>>(emptyList()) }
     var failed by remember { mutableStateOf<Throwable?>(null) }
     var loading by remember { mutableStateOf(true) }
     var chromeVisible by remember { mutableStateOf(true) }
@@ -98,10 +105,17 @@ fun ReaderScreen(
     LaunchedEffect(comicId, chapter, retry) {
         loading = true
         failed = null
-        images = null
+        pages = emptyList()
+        // 本地优先：这一章缓存过就直接读磁盘，断网也能看
+        val local = viewModel.localPages(comicId, chapter)
+        if (local.isNotEmpty()) {
+            pages = local.map { PageSrc.Local(it) }
+            loading = false
+            return@LaunchedEffect
+        }
         viewModel.repository.chapterImages(comicId, chapter).fold(
             onSuccess = {
-                images = it
+                pages = it.urls.map { url -> PageSrc.Remote(url) }
                 loading = false
             },
             onFailure = {
@@ -111,7 +125,7 @@ fun ReaderScreen(
         )
     }
 
-    val urls = images?.urls.orEmpty()
+    val urls = pages
     val pagerState = rememberPagerState(pageCount = { urls.size.coerceAtLeast(0) })
     val scope = rememberCoroutineScope()
 
@@ -177,7 +191,7 @@ fun ReaderScreen(
                     beyondViewportPageCount = if (settings.preload) 1 else 0,
                 ) { index ->
                     ReaderPage(
-                        url = urls[index],
+                        src = urls[index],
                         width = settings.imageSize,
                         quality = settings.imageQuality,
                         usePng = settings.imageUsePng,
@@ -282,7 +296,7 @@ fun ReaderScreen(
 
 @Composable
 private fun ReaderPage(
-    url: String,
+    src: PageSrc,
     width: Int,
     quality: Int,
     usePng: Boolean,
@@ -290,7 +304,13 @@ private fun ReaderPage(
     onTap: () -> Unit,
 ) {
     var pan by remember { mutableStateOf(Offset.Zero) }
-    val painter = rememberAsyncImagePainter(model = addImageParams(url, width, quality, usePng))
+    // 本地页直接交给 Coil 读 File；在线页才拼图片参数
+    val model: Any =
+        when (src) {
+            is PageSrc.Local -> src.file
+            is PageSrc.Remote -> addImageParams(src.url, width, quality, usePng)
+        }
+    val painter = rememberAsyncImagePainter(model = model)
     val state = painter.state.collectAsState().value
 
     Box(

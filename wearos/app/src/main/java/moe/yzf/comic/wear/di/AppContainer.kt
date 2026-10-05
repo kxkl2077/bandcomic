@@ -9,8 +9,10 @@ import coil3.disk.DiskCache
 import coil3.disk.directory
 import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import coil3.request.crossfade
+import moe.yzf.comic.wear.data.download.Downloader
 import moe.yzf.comic.wear.data.net.ComicApi
 import moe.yzf.comic.wear.data.repo.ComicRepository
+import moe.yzf.comic.wear.data.store.CacheStore
 import moe.yzf.comic.wear.data.store.JsonFileStore
 import moe.yzf.comic.wear.data.store.LibraryStore
 import moe.yzf.comic.wear.data.store.SearchHistoryStore
@@ -33,6 +35,9 @@ class AppContainer(private val context: Context) {
     val libraryStore = LibraryStore(fileStore)
     val searchHistoryStore = SearchHistoryStore(fileStore)
     val settingsStore = SettingsStore(context)
+
+    /** 本地漫画缓存：索引在 store/ 下，正文文件在 files/comics/ 下。 */
+    val cacheStore = CacheStore(fileStore, File(context.filesDir, "comics"))
 
     /** 日志用的「损坏文件已重置」回调，由 Application 注入实现。 */
     var onStorageRecovered: ((String) -> Unit)? = null
@@ -70,11 +75,14 @@ class AppContainer(private val context: Context) {
 
     val repository = ComicRepository(api, sourceStore)
 
+    val downloader = Downloader(api, cacheStore)
+
     init {
         // 启动期同步加载，避免首次网络请求在 OkHttp 线程里做文件 IO。
         sourceStore.ensureLoaded()
         libraryStore.ensureLoaded()
         searchHistoryStore.ensureLoaded()
+        cacheStore.ensureLoaded()
     }
 
     /** Coil 图片加载器：复用共享客户端 + 磁盘缓存，已看过的页面离线可读。 */

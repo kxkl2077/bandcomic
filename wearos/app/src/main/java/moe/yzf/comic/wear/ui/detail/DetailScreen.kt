@@ -41,6 +41,7 @@ import moe.yzf.comic.wear.data.net.addCoverParams
 import moe.yzf.comic.wear.ui.AppViewModel
 import moe.yzf.comic.wear.ui.common.CenterMessage
 import moe.yzf.comic.wear.ui.common.Dim
+import moe.yzf.comic.wear.ui.common.GlyphDownload
 import moe.yzf.comic.wear.ui.common.PageHeader
 import moe.yzf.comic.wear.ui.common.Palette
 import moe.yzf.comic.wear.ui.common.errorText
@@ -63,6 +64,7 @@ fun DetailScreen(
     comicId: String,
     onBack: () -> Unit,
     onRead: (chapter: Int) -> Unit,
+    onDownload: () -> Unit,
 ) {
     val screenWidthDp = LocalConfiguration.current.screenWidthDp.dp
     val settings by viewModel.settings.collectAsState()
@@ -154,6 +156,27 @@ fun DetailScreen(
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.padding(top = 5.dp).fillMaxWidth(0.8f),
                     )
+
+                    // 缓存入口：对应原版 album.ux 的下载按钮（跳 pages/download）
+                    Row(
+                        modifier =
+                            Modifier
+                                .padding(top = 6.dp)
+                                .clip(RoundedCornerShape(Dim.pillRadius))
+                                .background(Palette.Surface)
+                                .clickable { onDownload() }
+                                .padding(horizontal = Dim.pillPadH, vertical = Dim.pillPadV),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        GlyphDownload(color = Palette.TextPrimary, size = 14.dp)
+                        Spacer(Modifier.width(6.dp))
+                        androidx.wear.compose.material3.Text(
+                            text = stringResource(R.string.download_title),
+                            color = Palette.TextPrimary,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
 
                     Column(
                         modifier = Modifier.padding(top = 5.dp).fillMaxWidth(0.8f),

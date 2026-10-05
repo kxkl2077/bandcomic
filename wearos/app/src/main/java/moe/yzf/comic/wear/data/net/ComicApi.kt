@@ -103,13 +103,29 @@ class ComicApi(
         }
     }
 
-    private fun execute(sourceKey: String, url: String): String {
-        val builder = Request.Builder()
-            .url(url)
-            .header("User-Agent", userAgent())
-        cookie(sourceKey)?.takeIf { it.isNotBlank() }?.let { builder.header("Cookie", it) }
+    /**
+     * 下载二进制内容（正文图片）。UA / Cookie / HTTPS 回落语义与 [fetchText] 完全一致，
+     * 下载器直接复用它，避免另起一条不带凭证的请求路径。
+     */
+    fun fetchBytes(sourceKey: String, url: String): ByteArray {
+        try {
+            return executeBytes(sourceKey, url)
+        } catch (e: IOException) {
+            val apiError = classify(e)
+            val fallbackAllowed =
+                apiError.type == ApiErrorType.SSL || apiError.type == ApiErrorType.CONNECTION
+            if (!fallbackAllowed || !url.startsWith("https://")) throw apiError
+            val fallbackUrl = "http://" + url.removePrefix("https://")
+            try {
+                return executeBytes(sourceKey, fallbackUrl)
+            } catch (e2: IOException) {
+                throw classify(e2)
+            }
+        }
+    }
 
-        val response = client.newCall(builder.build()).execute()
+    private fun execute(sourceKey: String, url: String): String {
+        val response = client.newCall(buildRequest(sourceKey, url)).execute()
         var result = ""
         response.use { resp ->
             if (!resp.isSuccessful) {
@@ -120,6 +136,28 @@ class ComicApi(
             result = text
         }
         return result
+    }
+
+    private fun executeBytes(sourceKey: String, url: String): ByteArray {
+        val response = client.newCall(buildRequest(sourceKey, url)).execute()
+        return response.use { resp ->
+            if (!resp.isSuccessful) {
+                throw ApiException(ApiErrorType.HTTP, resp.code, "HTTP ${resp.code}")
+            }
+            val bytes = resp.body?.bytes()
+            if (bytes == null || bytes.isEmpty()) {
+                throw ApiException(ApiErrorType.PARSE, 0, "empty body")
+            }
+            bytes
+        }
+    }
+
+    private fun buildRequest(sourceKey: String, url: String): Request {
+        val builder = Request.Builder()
+            .url(url)
+            .header("User-Agent", userAgent())
+        cookie(sourceKey)?.takeIf { it.isNotBlank() }?.let { builder.header("Cookie", it) }
+        return builder.build()
     }
 
     /** 把底层异常归类。判定顺序很重要：SSLException 属于 IOException 子类。 */

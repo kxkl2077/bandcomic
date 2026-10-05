@@ -12,7 +12,9 @@ import androidx.wear.compose.navigation.rememberSwipeDismissableNavController
 import moe.yzf.comic.wear.R
 import moe.yzf.comic.wear.ui.AppViewModel
 import moe.yzf.comic.wear.ui.about.AboutScreen
+import moe.yzf.comic.wear.ui.cache.CacheScreen
 import moe.yzf.comic.wear.ui.detail.DetailScreen
+import moe.yzf.comic.wear.ui.download.DownloadScreen
 import moe.yzf.comic.wear.ui.history.HistoryScreen
 import moe.yzf.comic.wear.ui.home.HomeScreen
 import moe.yzf.comic.wear.ui.input.InputScreen
@@ -27,10 +29,12 @@ object Routes {
     const val ABOUT = "about"
     const val SOURCES = "sources"
     const val HISTORY = "history"
+    const val CACHE = "cache"
 
     private const val SEARCH = "search"
     private const val DETAIL = "detail"
     private const val READER = "reader"
+    private const val DOWNLOAD = "download"
 
     fun search(keyword: String): String = "$SEARCH/${Uri.encode(keyword)}"
 
@@ -38,9 +42,12 @@ object Routes {
 
     fun reader(id: String, chapter: Int): String = "$READER/${Uri.encode(id)}/$chapter"
 
+    fun download(id: String): String = "$DOWNLOAD/${Uri.encode(id)}"
+
     const val SEARCH_PATTERN = "$SEARCH/{keyword}"
     const val DETAIL_PATTERN = "$DETAIL/{id}"
     const val READER_PATTERN = "$READER/{id}/{chapter}"
+    const val DOWNLOAD_PATTERN = "$DOWNLOAD/{id}"
 
     const val ARG_KEYWORD = "keyword"
     const val ARG_ID = "id"
@@ -68,6 +75,7 @@ fun ComicWearNavHost(viewModel: AppViewModel) {
                 onOpenAbout = { navController.navigate(Routes.ABOUT) },
                 onOpenEdit = { navController.navigate(Routes.SOURCES) },
                 onOpenHistory = { navController.navigate(Routes.HISTORY) },
+                onOpenCache = { navController.navigate(Routes.CACHE) },
                 onOpenSearch = { keyword -> navController.navigate(Routes.search(keyword)) },
                 onOpenDetail = { id -> navController.navigate(Routes.detail(id)) },
                 onNeedInput = {
@@ -111,6 +119,7 @@ fun ComicWearNavHost(viewModel: AppViewModel) {
                 comicId = id,
                 onBack = { navController.popBackStack() },
                 onRead = { chapter -> navController.navigate(Routes.reader(id, chapter)) },
+                onDownload = { navController.navigate(Routes.download(id)) },
             )
         }
 
@@ -147,6 +156,27 @@ fun ComicWearNavHost(viewModel: AppViewModel) {
                     viewModel.prepareInput("", context.getString(R.string.edit_input))
                     navController.navigate(Routes.INPUT)
                 },
+            )
+        }
+
+        composable(Routes.CACHE) {
+            CacheScreen(
+                viewModel = viewModel,
+                onBack = { navController.popBackStack() },
+                onOpen = { comicId, chapter ->
+                    navController.navigate(Routes.reader(comicId, chapter))
+                },
+            )
+        }
+
+        composable(
+            route = Routes.DOWNLOAD_PATTERN,
+            arguments = listOf(navArgument(Routes.ARG_ID) { type = NavType.StringType }),
+        ) { entry ->
+            DownloadScreen(
+                viewModel = viewModel,
+                comicId = entry.arguments?.getString(Routes.ARG_ID).orEmpty(),
+                onBack = { navController.popBackStack() },
             )
         }
 
