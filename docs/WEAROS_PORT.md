@@ -1,0 +1,530 @@
+# BandComic Wear OS 移植说明
+
+本目录（`wearos/`）是 [bandcomic](https://github.com/kxkl2077/bandcomic) 的 **Wear OS 原生移植版**。
+仓库根目录下的原始快应用源码**未做任何改动**，仍然可以按原方式用 `aiot-toolkit` 构建。
+
+---
+
+## 1. 为什么这是「移植」而不是「改配置」
+
+原仓库是**小米 Vela OS 快应用**，不是 Android 应用：
+
+| 原仓库 | 说明 |
+| --- | --- |
+| `src/**/*.ux` | 13 个 `.ux` 单文件组件（9132 行），Vela 私有 UI 框架 |
+| `src/**/*.js` | 27 个 JS 模块（6167 行），`@system.*` 系统接口 |
+| `src/manifest.json` | 快应用清单（`aiot-toolkit` 消费） |
+| `docs/CUSTOM_SOURCE.md` | 漫画源 HTTP 协议（660 行） |
+
+`.ux` 的模板语法、`@system.storage` / `@system.fetch` / `@system.file` 等接口在 Android 上都不存在，
+因此不存在「把配置文件改一改就能跑在手表上」的路径。本次移植的做法是：
+
+- **保留**：源协议（`docs/CUSTOM_SOURCE.md` 定义的 HTTP 契约）、数据模型语义、交互流程、URL 参数规则。
+- **重写**：UI 层（`.ux` → Compose for Wear OS）、系统接口层（`@system.*` → Android API）。
+- **丢弃**：依赖 Vela 固件的能力（LVGL 预解码、`ifLVGL`、网桥互联、快应用 OOBE 等），见第 6 节。
+
+---
+
+## 2. 工具链与版本决策
+
+全部版本号都是 2026-09 从 Google Maven / Maven Central 的 **元数据实测得到**，不使用猜测版本。
+
+| 组件 | 版本 | 备注 |
+| --- | --- | --- |
+| Gradle | 9.8.0 | wrapper 已生成 |
+| AGP | 9.4.1 | |
+| Kotlin | 2.4.20 | |
+| JDK | 25（Zulu） | |
+| compileSdk | **37 + `compileSdkMinor = 1`** | |
+| minSdk / targetSdk | 30 / 37 | |
+| Compose BOM | 2026.09.00 | |
+| Wear Compose | 1.7.0 | material3 + foundation + navigation |
+| Coil | 3.6.3 | |
+| OkHttp | 5.5.0 | |
+| kotlinx-serialization | 1.11.0 | |
+| DataStore Preferences | 1.2.1 | |
+| Robolectric | 4.17 | 仅测试；在 JVM 上跑真实 Android 运行时 |
+| androidx.test ext-junit / core | 1.3.0 / 1.7.0 | 仅测试 |
+
+### 2.1 AGP 9 起 Kotlin 编译内置
+
+AGP 9.0 之后**不允许**再申请 `org.jetbrains.kotlin.android`，否则 `gradle wrapper` 会直接报错：
+
+```
+The 'org.jetbrains.kotlin.android' plugin is no longer required for Kotlin support since AGP 9.0.
+```
+
+因此 `gradle/libs.versions.toml` 的 `[plugins]` 只有三项：
+
+```toml
+android-application  = "com.android.application"
+kotlin-compose       = "org.jetbrains.kotlin.plugin.compose"        # Compose 编译器插件仍需单独申请
+kotlin-serialization = "org.jetbrains.kotlin.plugin.serialization"  # 同上
+```
+
+同时 `app/build.gradle.kts` 里**没有** `kotlin { compilerOptions { } }` 块：
+内置 Kotlin 下 `jvmTarget` 默认跟随 `android.compileOptions.targetCompatibility`，
+本工程已设为 17，再显式声明属于冗余。
+
+### 2.2 compileSdk 必须写成「主.次」
+
+Android 37 起平台按 `主.次` 版本发布。本机 SDK 里的目录是 `platforms/android-37.1`
+（其 `source.properties` 中 `AndroidVersion.ApiLevel=37.1`），**并不存在** `android-37`。
+若只写 `compileSdk = 37`，`checkDebugAarMetadata` 会以如下理由失败 28 项（每个 2026-09 版库一条）：
+
+```
+Dependency 'androidx.wear.compose:compose-material3:1.7.0' requires libraries and applications
+that depend on it to compile against version 37 or later of the Android APIs.
+:app is currently compiled against android-36.
+```
+
+AGP 9.4.1 的 `CommonExtension` 提供了 `compileSdkMinor`，因此必须写成：
+
+```kotlin
+compileSdk = 37
+compileSdkMinor = 1
+```
+
+### 2.3 刻意不引入 Room / KSP
+
+持久化**没有**使用 Room。原因是版本约束：当前 KSP 线（2.3.12）与 Kotlin 2.4.20 不匹配，
+强行引入会把工具链钉死在一个别扭的组合上。本应用的数据形态也支撑这个选择：
+
+| 数据 | 方案 | 位置 |
+| --- | --- | --- |
+| 漫画源列表 / Cookie | `kotlinx.serialization` + 原子 JSON 文件 | `filesDir/store/sources.json`、`cookies.json` |
+| 阅读历史与进度（BookEntry） | 同上 | `filesDir/store/library.json` |
+| 搜索历史 | 同上，上限 10 条 | `filesDir/store/search_history.json` |
+| 应用设置 | DataStore Preferences | `comic_wear_settings` |
+
+全部数据量都是「几十条记录」级别，且都是**整体读写**（没有按字段查询的需求），
+文件级原子写比数据库更简单也更不容易出错。`JsonFileStore` 的写入是
+`.tmp` + rename，并在读到损坏文件时把原文备份成 `<name>.corrupt-<时间戳>` 后回落默认值。
+
+---
+
+## 3. 目录结构
+
+```
+wearos/
+├─ settings.gradle.kts          rootProject.name = "bandcomic-wear"
+├─ build.gradle.kts
+├─ gradle.properties            org.gradle.configuration-cache=false
+├─ gradle/libs.versions.toml    版本目录（唯一版本来源）
+├─ gradlew.bat / gradle/        wrapper（gradle-9.8.0-bin）
+├─ local.properties             sdk.dir
+└─ app/
+   ├─ build.gradle.kts
+   └─ src/
+      ├─ main/AndroidManifest.xml
+      ├─ main/res/              themes / colors / 图标 / strings(en) / strings-zh-rCN
+      ├─ main/java/moe/yzf/comic/wear/
+      │  ├─ ComicWearApp.kt               Application，持有 AppContainer
+      │  ├─ MainActivity.kt               ComponentActivity + NavHost
+      │  ├─ di/AppContainer.kt            手写依赖容器
+      │  ├─ data/
+      │  │  ├─ model/Models.kt            ComicSource / BookEntry / ComicDetail / SearchPage / ChapterImages
+      │  │  ├─ net/JsonLite.kt            宽松 JSON 取值
+      │  │  ├─ net/ImageUrls.kt           addUrlParam / addImageParams / addCoverParams
+      │  │  ├─ net/ComicApi.kt            URL 构造 + 请求 + 解析 + 错误分类
+      │  │  ├─ source/SourceConfig.kt     /config 解析与校验
+      │  │  ├─ store/                     JsonFileStore / SourceStore / LibraryStore
+      │  │  │                             / SearchHistoryStore / SettingsStore
+      │  │  └─ repo/ComicRepository.kt    面向 UI 的用例层
+      │  └─ ui/
+      │     ├─ theme/Theme.kt
+      │     ├─ common/Design.kt           视觉令牌（调色板/尺寸）+ Canvas 自绘图标
+      │     ├─ common/Chrome.kt           页头（.time/.title）、输入胶囊、列表卡片、分页
+      │     ├─ common/Rotary.kt           表冠 → 任意可滚动容器
+      │     ├─ common/Toast.kt            对应原版 prompt.showToast 的瞬时提示
+      │     ├─ common/ErrorText.kt         错误文案映射
+      │     ├─ AppViewModel.kt
+      │     ├─ nav/AppNav.kt               Routes + SwipeDismissableNavHost
+      │     ├─ home/HomeScreen.kt          首页（index.ux：搜索优先）
+      │     ├─ input/InputScreen.kt        输入页（对应原版 ime 页，改用系统输入法）
+      │     ├─ search/SearchScreen.kt
+      │     ├─ detail/DetailScreen.kt
+      │     ├─ reader/ReaderScreen.kt
+      │     ├─ history/HistoryScreen.kt    阅读历史（原版在 offline.ux 的其中一个标签页）
+      │     ├─ sources/SourcesScreen.kt
+      │     └─ about/AboutScreen.kt        关于 + 设置（原版同页）
+      └─ test/java/moe/yzf/comic/wear/ProtocolContractTest.kt
+```
+
+规模：32 个 Kotlin 文件 / 约 4100 行（不含测试）。
+
+---
+
+## 4. 分层与数据流
+
+```
+Compose Screen
+   ↓ 只读 StateFlow / 调 suspend 用例
+AppViewModel            settings, shelf, currentSource, sources, searchHistory
+   ↓
+ComicRepository         授权校验 + Dispatchers.IO + 异常收敛为 ApiException
+   ↓
+ComicApi                URL 构造 / OkHttp 请求 / JSON 解析 / 错误分类
+   ↓
+SourceStore · LibraryStore · SettingsStore
+```
+
+`AppContainer` 在 `Application.onCreate` 里装配全部单例，并**同步**加载三个小 JSON 文件
+（避免首次网络请求时在 OkHttp 线程里做文件 IO）。全程没有 `runBlocking`，
+DataStore 的读取走 `flow`，不存在主线程阻塞死锁。
+
+### 4.1 错误分类
+
+`ApiErrorType` 区分 `TIMEOUT / SSL / DOMAIN / CONNECTION / HTTP / PARSE / UNKNOWN`，
+由 `ComicApi.classify` 归类（注意 `SSLException` 必须先于 `IOException` 判断，
+否则会被父类吃掉）。`ErrorText.kt` 把它映射成本地化文案，
+所以界面拿到的是「网络超时」而不是一串英文异常。
+
+### 4.2 HTTPS → HTTP 回落
+
+`ComicApi.fetchText` 在 HTTPS 握手失败（SSL 异常）时会尝试同一地址的 HTTP 版本。
+这条路径对应协议文档里自建源常见的自签名证书场景。
+回落一旦发生，`AddSourceResult.insecure` 置真，源管理页会**显式提示**
+导入的源降级到了明文 HTTP，而不是静默接受。
+
+---
+
+## 5. 协议保真度
+
+`docs/CUSTOM_SOURCE.md` 是本次移植的黄金契约。以下行为逐条对齐（并有单测覆盖）：
+
+| 协议要求 | 实现 |
+| --- | --- |
+| `{apiUrl}{detailPath}`，`<id>` 替换 | `ComicApi.buildDetailUrl` |
+| `{apiUrl}{searchPath}`，`<text>`/`<page>` 替换，`<text>` 走 `encodeURIComponent` | `buildSearchUrl`（空格编码为 `%20` 而非 `+`） |
+| `{apiUrl}{photoPath}`，`<id>`/`<chapter>` 替换 | `buildPhotoUrl` |
+| `GET {api}/config` 返回 `{key: {...}}` 映射，`key` 取自外层 map 键 | `parseSourceConfig` |
+| `using` / `type` 为保留键 | `RESERVED_KEYS` |
+| `detailPath` 必须含 `<id>`、`searchPath` 必须含 `<text>`+`<page>` | 校验并给出 `reason` |
+| 图片参数 `width` / `quality` / `ifPNG` | `addImageParams(url, width, quality, usePng)` |
+| 封面固定 `width=80` | `addCoverParams(url, quality, usePng)` |
+| 参数原位替换、不重复追加、保留 `#fragment` | `addUrlParam` |
+| 请求带 `User-Agent` 与当前源 `Cookie` | OkHttp 拦截器统一注入 |
+| `item_id` / `page_count` / `views` / `rate` 允许 number 或 string | `JsonLite` 一律按文本读取 |
+| 章节图片为空视为失败 | `parseChapterImages` 抛 `ApiException(PARSE)` |
+
+### 5.1 相对快应用版的**有意偏离**
+
+1. **修复了 URL 以 `?` 结尾时的拼接缺陷。** 快应用版 `imageUrl.js` 的 `addUrlParam`
+   在地址已带 `?` 时会多插一个分隔符，产生 `...jpg?&width=480`。移植版修正为单分隔符。
+2. **丢弃 `ifLVGL` 与 `.bin` 后缀。** 这是 Vela 固件用 LVGL 预解码的私有约定，
+   Wear OS 侧由 Coil 解码，无对应能力（详见第 6 节）。
+3. **数字 ID 直连详情的行为保留。** 快应用版 `submitSearch` 用 `/^\d{1,20}$/` 判断
+   输入是否为漫画 ID，是则直接跳详情。移植版在 `ComicRepository.looksLikeComicId`
+   中保留同样语义（1–20 位纯数字）。注意 MangaDex 的实际 ID 是 UUID，
+   因此这条是为了兼容其他自定义源。
+
+---
+
+## 6. 丢弃的 Vela 专属能力
+
+| 能力 | 原实现 | 丢弃原因 |
+| --- | --- | --- |
+| LVGL 预解码与 `.bin` 图片 | `ifLVGL` 参数 | Vela 固件私有；Wear OS 用 Coil |
+| 网桥 / AstroBox 互联 | `@system.interconnect` | 无对应 Android API |
+| 快应用 OOBE 引导 | 快应用平台流程 | Wear OS 无此概念 |
+| 应用内检查更新 | 下载快应用 `.rpk` | 由应用商店负责 |
+| 下载 / 离线漫画库 | `@system.file` 分片写 | 本期范围外（见第 8 节） |
+| 系统级分享/互传 | 快应用能力 | 非核心闭环 |
+
+---
+
+## 7. 关键实现取舍
+
+### 7.1 Wear Material3 的 API 现实
+
+Wear Compose Material3 1.7.0 与手机版差异很大，以下都是**从 AAR 的 `classes.jar`
+实测**得到的结论（不是猜的）：
+
+- **没有 `Chip`**。源码里任何 `Chip` 用法都必须换成 `Button` / `Card`。
+- **没有 `TextField`**。输入框用 `androidx.compose.foundation.text.BasicTextField` 自绘
+  `decorationBox`（搜索框、源地址输入框都走这条）。
+- 实验性标记名是 **`ExperimentalWearComposeMaterial3Api`**，不是 `ExperimentalWearMaterial3Api`。
+- `ColorScheme` **没有 `surfaceDim`**。
+- `Button` 没有 `secondaryLabel`；设置项的状态值直接拼进 `label`。
+- `rememberPickerState` 的第二个参数**不能**用 `initiallySelectedOption` 命名传参，按位置传。
+- 翻页指示器是 `HorizontalPageIndicator(pagerState)`，**不存在** `PositionIndicator`。
+- `AlertDialog` 的正文内容槽是 `ScalingLazyListScope`，因此 Picker 要包在 `item { }` 里。
+
+### 7.2 量表冠（rotary）
+
+- **整页模式**：用 `androidx.wear.compose.foundation.pager.HorizontalPager`，
+  它自带表冠吸附翻页，比在通用 pager 上手工接旋转事件可靠得多。
+- **连续模式**：`LazyColumn` 不认表冠，显式接 `Modifier.onRotaryScrollEvent`
+  并用 `focusRequester` + `focusable()` + `onPlaced { requestFocus() }` 把焦点交给列表——
+  少了这一步旋转事件根本不会派发到列表上。
+
+### 7.3 缩放：设置面板里的滑杆
+
+对齐原版：缩放由阅读设置面板里的**滑杆**控制（0..100，映射 1.0x..3.0x），
+而不是双击手势。放大状态下单指拖动用于平移，此时
+`HorizontalPager(userScrollEnabled = scale == 0f)` 会**关掉翻页手势**，
+两者不会互相抢事件；缩回原始大小后翻页恢复。
+
+圆屏上这条滑杆用「‹ 数值 ›」步进代替细条 `Slider`——细条在 466px 圆屏上
+可点面积太小，步进既好点按又与滑杆语义等价。
+
+### 7.4 图片适配
+
+正文与封面都走 `AsyncImage(ContentScale.Fit/Crop)`，高度由容器约束，
+不依赖图片原始像素高，避免页面之间出现空隙。
+另外 coil3 的 `AsyncImage` **没有** `painter` 重载，
+需要画笔状态时用 Compose 的 `Image(painter = ...)`。
+
+### 7.5 进度落盘
+
+翻页后写书架由 `DisposableEffect(comicId, chapter, page, urlCount)` 的
+`onDispose` 完成：离开阅读器（返回、切章、进程回收前）落盘一次，
+对应原版在 `onHide` / `onDestroy` 调用的 flush，避免每翻一页写一次文件。
+
+### 7.6 章节与页码选择
+
+原版的章节切换是左右箭头 + 数字滚轮。这里保留**左右箭头切章**
+（`photo_chapter_change`），页码跳转给出「‹ 第 N 页 ›」步进。
+圆屏上步进的可点面积远大于滚轮，取值语义与原版一致。
+
+### 7.7 界面保真：整轮重做（本轮）
+
+上一版的数据层（协议、存储、错误分类）是对齐的，但**视觉与交互是凭空设计的**，
+与原版快应用无关，因此被判定为「丑」。本轮把 UI 完全改为从 `.ux` 源码反推：
+
+- **换算依据**：原版 `manifest.json` 的 `config.designWidth = "device-width"`，
+  即 CSS px 与设备像素 1:1；目标手表 466x466 @320dpi（密度 2.0），
+  所以 **dp = 原版 px / 2**。全部尺寸令牌集中在 `ui/common/Design.kt`，
+  逐条标注来源（如 `.result-item height: 120px` → `Dim.cardH = 60.dp`）。
+- **首页**：原版首页**不是书架，而是搜索优先的落地页**。已按 `index.ux` 重建：
+  时钟 → 应用名（圆屏点击进「关于」）→「当前源: X」+ 换源(`toggleSource` 循环)
+  + 编辑 → 居中输入胶囊（256x54px → 128x27dp）→ 横向滚动搜索历史词条
+  （最多 5 条 + 二次确认清空）→ 底部居中「更多」进阅读历史。
+- **列表卡片**：搜索/历史统一为高 60dp、圆角 12dp、`#262626` 底、
+  封面 30x40dp、标题 12sp 最多三行、副标题 10sp 白色 60%。
+- **详情页**：封面宽 = 屏宽 x 3/4、比例 3:4、圆角 12dp；「点击封面开始阅读」提示；
+  资料行是 18dp 圆角、`#262626` 底、1.5dp `rgba(255,255,255,.24)` 描边的胶囊。
+- **阅读器**：圆屏整屏进度圆弧（`#4fc3f7`，底环 `rgba(255,255,255,.15)`）、
+  点图显隐顶栏、左右边缘 `‹ ›` 翻页、底部居中 `✓` 展开设置面板
+  （面板宽 67%、`rgba(38,38,38,.6)`、圆角 18dp）。
+- **关于页**：与原版一致，把「关于信息」和「设置」放同一页；设置项高 56dp、
+  圆角 18dp、标题 16sp 加粗 + 说明 10sp 白色 60%，右侧为控件。
+- **编辑漫画源**：列表项高 42dp、圆角 18dp、`rgba(38,38,38,.8)` 底，
+  内置源不显示删除图标；底部居中加号进输入页，域名/IP 校验后拉取 `/config`。
+- **阅读历史**：原版这段列表在 `offline.ux` 的「阅读历史」标签下
+  （本地漫画部分不在 v1 范围），因此单独成页，但沿用其交互：
+  卡片横滑露出删除按钮、删除需二次点击、底部分页。
+- **图标**：全部用 `Canvas` 自绘（`Design.kt`），不引入 material-icons 字体，
+  尺寸完全可控，也避免圆屏上字体图标裁切。
+- **文案**：`values/values-zh-rCN` 的键值逐条对齐原版 `i18n/zh-CN.json`
+  与 `defaults.json`（如 `elsePlaceholder = 输入漫画ID/关键词`、
+  `homeTip = 试试搜索关键词；到「关于」页可运行快速检查`）。
+
+与原版的**有意偏离**（都是平台能力差异，语义不变）：
+滑杆/滚轮改为圆屏友好的步进；原版自绘的全屏输入法改为系统输入法
+（Wear OS 侧 `com.sogou.ime.wear` 可用），因此保留了独立的输入页与
+「确认/取消」回传语义（对应原版 `global.__imeResult`）。
+
+---
+
+## 8. 实测验证记录
+
+### 8.1 线上协议实测（2026-10）
+
+对内置源发起真实请求。`https://mangadex.yzf.moe/config` 返回 **308** 跳转到
+`https://mangadex.yuzifu.top/config`，后者返回 200：
+
+```json
+{"MangaDex":{"apiUrl":"https://mangadex.yuzifu.top","detailPath":"/comic/<id>",
+"name":"MangaDex","photoPath":"/photo/<id>/ch/<chapter>",
+"searchPath":"/search/<text>/<page>","type":"mangadex"}}
+```
+
+**关键确认**：条目内**没有 `key` 字段**，源 key 来自外层 map 键——移植版的
+`parseSourceConfig` 正是这样实现的。
+
+搜索 `GET /search/one/1`：
+
+```json
+{"has_more":true,"page":1,"results":[{"comic_id":"595e3a7a-...","cover_url":".../cover",
+"pages":0,"title":"Tennis no Oujisama - Onecoin Reserve (Doujinshi)"}]}
+```
+
+详情 `GET /comic/{id}`：
+
+```json
+{"cover":".../cover","item_id":"595e3a7a-...","name":"...","page_count":30,
+"rate":8.07,"tags":["Boys' Love","Doujinshi"],"total_chapters":1}
+```
+
+**注意两点**：`rate` 是 JSON **number**（`8.07`）而不是字符串；响应里**没有 `views`**。
+两者都被 `JsonLite` 的文本读取方式正确处理。
+
+章节图片 `GET /photo/{id}/ch/1` 返回 `{"images":[{"url":".../1.jpg"}, ...]}`；
+封面 `GET /comic/{id}/cover` 返回 `200 image/jpeg`。
+
+### 8.2 自动化测试总览
+
+7 个测试套件 / 38 个用例，全部跑在 JVM 上（不需要真机或模拟器）：
+
+| 套件 | 用例 | 覆盖内容 |
+| --- | --- | --- |
+| `ProtocolContractTest` | 8 | 真实报文的协议解析、URL 构造、图片参数边界 |
+| `StorePersistenceTest` | 10 | 真实文件读写、跨实例持久化、原子写、损坏自愈 |
+| `AppLaunchTest` | 6 | 真实 Application 启动、容器装配、默认值、UA 形状 |
+| `AppViewModelTest` | 6 | 状态流接线、书架进度、搜索历史、源切换 |
+| `SettingsStoreTest` | 3 | DataStore 往返、越界钳制、默认值 |
+| `MainActivityRenderTest` | 4 | 真实 Activity 组合渲染（zh-rCN 227dp 圆屏）、首页标题/输入占位/当前源/引导文案 |
+| `RobolectricSmokeTest` | 1 | Robolectric 在最简路径上可用 |
+
+```
+:app:testDebugUnitTest  →  tests=38  failures=0  errors=0  skipped=0
+```
+
+### 8.3 运行时验证（Robolectric）
+
+**这是本次移植最强的验证手段**：Robolectric 4.17 能在 JVM 上加载**真实的
+`ComicWearApp` Application 与 `MainActivity`**，因此下列断言等价于
+「手表上点开图标会不会崩」，而不是对着 mock 自说自话。
+
+- `AppLaunchTest` 走的是清单里声明的 Application，验证 `AppContainer` 装配、
+  三个 JSON 存储加载、DataStore 初始化、OkHttp 拦截器构建、Coil 单例安装
+  全链路不抛异常，且内置 MangaDex 源被正确植入、`using` 不悬空。
+- `MainActivityRenderTest` 启动**真实 `MainActivity`**，跑通
+  `ComicWearTheme` → `AppViewModel` → `SwipeDismissableNavHost` → 首页
+  的完整启动链路，并断言首页标题、输入占位、当前源与引导文案确实渲染出来。屏幕按 zh-rCN
+  454×454 圆屏（≈227dp）配置，用来确认圆形屏下组合不炸。
+- `StorePersistenceTest` 用真实临时目录，因此「新建实例能读到上一个实例写的
+  数据」才真正证明落盘成功；损坏文件的备份与回落也在这里被钉死。
+
+#### 8.3.1 跑起来需要两个环境开关
+
+**模块开放**（JDK 17+ 的模块封装会挡住 Robolectric 反射访问 JDK 内部 API）：
+
+```
+IllegalAccessException: ... cannot access class jdk.internal.access.SharedSecrets
+  (in module java.base) because module java.base does not export jdk.internal.access
+```
+
+已在 `app/build.gradle.kts` 里给 `Test` 任务加好 `--add-opens` / `--add-exports`
+（`java.base` 的 `java.lang`、`java.io`、`java.nio`、`jdk.internal.access`、`jdk.internal.ref`）。
+
+**Compose 渲染测试降到 API 34**：Compose 测试在 Robolectric 下会走 Espresso 的
+`onIdle`，而它反射调用 `android.hardware.input.InputManager.getInstance()`——
+这个方法在 API 37 上已不存在：
+
+```
+NoSuchMethodException: android.hardware.input.InputManager.getInstance()
+  at androidx.test.espresso.Espresso.onIdle
+  at androidx.compose.ui.test.RobolectricIdlingStrategy.runUntilIdle
+```
+
+渲染验证不依赖 API 37 特性，因此 `MainActivityRenderTest` 用 `@Config(sdk = [34])`
+运行；**其余套件仍跑在 API 37**（`robolectric.properties` 里 `sdk=37`），
+与应用 targetSdk 一致。
+
+### 8.4 构建与产物校验
+
+```
+:app:assembleDebug  →  BUILD SUCCESSFUL
+```
+
+`aapt2 dump badging` 对最终 APK 的校验结果：
+
+```
+package: name='moe.yzf.comic.wear' versionCode='1' versionName='1.0.0'
+compileSdkVersion='37'
+minSdkVersion:'30'   targetSdkVersion:'37'
+uses-permission: android.permission.INTERNET
+uses-permission: android.permission.ACCESS_NETWORK_STATE
+uses-feature: android.hardware.type.watch
+launchable-activity: moe.yzf.comic.wear.MainActivity
+```
+
+清单里同时声明了 `com.google.android.wearable.standalone = true`
+（独立运行，不依赖手机端 App）与 `uses-library com.google.android.wearable`（`required=false`）。
+中英文字符串各 89 键，键集合完全一致，无缺失。
+
+### 8.5 仍然未能验证的部分
+
+**真机上已装、已启动，但界面截不到。** 可用设备只有一台 OPPO OWW231 手表
+（Android 11 / SDK 30 / armeabi-v7a / 466x466 @320dpi，ColorOS Watch 而非 Wear OS）。
+`adb install -r` 成功，`am start` 后 `dumpsys window` 显示
+`mFocusedApp=...moe.yzf.comic.wear/.MainActivity`、`pidof` 有进程、crash buffer 为空——
+**应用确实在前台运行且未崩溃**。
+
+但该手表此刻放在充电座上，ColorOS 的充电界面
+（`SysUI.Charging`，package `com.heytap.wearable.systemui`）**长期占着窗口焦点**，
+盖住了应用窗口。实测以下手段都无效：`KEYCODE_BACK`、点按、上滑、
+屏幕关开、再次 `am start`、`CLOSE_SYSTEM_DIALOGS` 广播，
+`mCurrentFocus` 始终是 `SysUI.Charging`。因此**这一轮的视觉验证只能停在安装与启动**，
+要看实际画面需把表从充电座上取下。
+
+本机也无法用模拟器替代：`HypervisorPresent = False`（i7-4770，未启用 WHPX/HAXM），
+SDK 里没有可用的 Wear 系统镜像。
+
+因此以下项目**只能在取下手表后确认**：
+
+- **GPU 实际渲染结果**。Robolectric 不真正光栅化，圆形屏裁切是否美观、
+  文字是否被圆边切掉，这类视觉问题它看不出来。
+- **表冠（rotary）手感**。旋转事件派发、`HorizontalPager` 的吸附行为、
+  连续模式下 `onRotaryScrollEvent` 与焦点抢不抢得到，都依赖真实输入设备。
+- **系统输入法是否真的弹出**。首页输入胶囊会跳到输入页并请求焦点，
+  但该表上的输入法是 `com.sogou.ime.wear`，是否正常上屏需要在设备上点一次确认。
+- **真机网络与 Coil 磁盘缓存命中**。该表当前**无网络连通性**
+  （`ping 8.8.8.8` 全丢包，需经 `com.heytap.wearable.bluetooth.net.proxy` 走手机代理），
+  所以搜索/详情/正文的真实请求尚未在设备上跑通，协议保真度依据的是主机侧实测（见 8.1）。
+- **功耗与内存**。整话几十页图片在手表上的表现。
+
+---
+
+## 9. 构建与安装
+
+```powershell
+$env:JAVA_HOME   = "C:\Program Files\Zulu\zulu-25"
+$env:ANDROID_HOME = "$env:LOCALAPPDATA\Android\Sdk"
+cd wearos
+.\gradlew.bat :app:assembleDebug
+```
+
+产物：`wearos/app/build/outputs/apk/debug/app-debug.apk`
+
+安装到手表（需先开启开发者选项与 ADB 调试，并配对好 ADB）：
+
+```powershell
+adb install -r wearos\app\build\outputs\apk\debug\app-debug.apk
+```
+
+单测（38 个用例，JVM 上跑，不需要设备）：
+
+```powershell
+.\gradlew.bat :app:testDebugUnitTest
+.\gradlew.bat :app:testDebugUnitTest --tests "*ProtocolContractTest*"
+.\gradlew.bat :app:testDebugUnitTest --tests "*MainActivityRenderTest*"
+```
+
+测试需要 `--add-opens` / `--add-exports` 才能在 JDK 17+ 上跑（原因见 8.3.1），
+这些参数已经写在 `app/build.gradle.kts` 的 `Test` 任务里，直接执行即可。
+
+---
+
+## 10. 本期未做（v1 范围外）
+
+按约定，以下能力不在本次移植范围内：
+
+- 漫画下载与离线库
+- AstroBox / 网桥互联
+- OOBE 引导流程
+- 应用内检查更新
+
+### 10.1 已知限制
+
+- **未在真机或真实模拟器上运行过**（原因见 8.5）。逻辑与组合层已由 Robolectric
+  覆盖，但 **GPU 实际渲染、表冠手感、真机网络与磁盘缓存命中率**仍是未知项。
+- 阅读器浮层在圆形表盘上最多 6 个按钮，小屏机型可能需要滑动才能看全。
+- 连续模式只做「向前预加载 2 页」，不做整话批量预取——
+  手表的带宽和存储都不适合一次性拉几十页。
+- 书架封面取的是**进入阅读时抓到的详情封面**；若书籍是从搜索页直接开读的，
+  封面字段可能为空（搜索结果的 `cover_url` 与详情 `cover` 是同一地址，
+  但当前实现只在详情请求成功后回填）。

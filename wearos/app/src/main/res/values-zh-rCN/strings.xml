@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 文案逐条对齐原版 Vela 快应用的 src/i18n/zh-CN.json -->
+<resources>
+    <string name="app_name">腕上漫画</string>
+
+    <!-- 首页 -->
+    <string name="home_placeholder">输入漫画ID/关键词</string>
+    <string name="home_tip">试试搜索关键词；到「关于」页可运行快速检查</string>
+    <string name="tip_need_input">请输入漫画ID或关键词</string>
+    <string name="loading_info">正在请求漫画信息...</string>
+    <string name="current_source">当前源: </string>
+
+    <!-- 关于 -->
+    <string name="about">关于</string>
+    <string name="author">作者</string>
+    <string name="thanks">感谢</string>
+    <string name="setting">设置</string>
+
+    <!-- 设置项 -->
+    <string name="settings_search_page_size">搜索每页个数</string>
+    <string name="settings_image_quality">图片质量</string>
+    <string name="settings_image_size">图片尺寸</string>
+    <string name="settings_show_cover">搜索显示封面</string>
+    <string name="settings_keep_zoom">保持图片缩放</string>
+    <string name="settings_use_png">PNG图片解析</string>
+    <string name="settings_preload">相邻页预加载</string>
+    <string name="settings_info_search_page_size">每页显示的漫画数量</string>
+    <string name="settings_info_image_quality">图片的清晰度百分比</string>
+    <string name="settings_info_image_size">图片显示宽度像素值</string>
+    <string name="settings_info_show_cover">搜索结果显示封面图</string>
+    <string name="settings_info_keep_zoom">切换章节保持缩放比例</string>
+    <string name="settings_info_use_png">请求图片时让接口返回PNG格式，推荐小米手环10 Pro用户开启</string>
+    <string name="settings_info_preload">在线阅读时提前下载前后页图片，翻页更快</string>
+
+    <!-- 错误 -->
+    <string name="error_no_comic">未找到相关漫画，请检查输入是否正确</string>
+    <string name="error_network">网络错误，请稍后重试</string>
+    <string name="error_unknown">发生未知错误，错误：</string>
+    <string name="error_invalid_response">漫画源返回数据格式错误</string>
+    <string name="error_source_deleted">源已删除</string>
+
+    <!-- 搜索 -->
+    <string name="search_title">搜索: </string>
+    <string name="search_searching">搜索中...</string>
+    <string name="search_opening">打开中...</string>
+    <string name="search_no_found">未找到相关漫画</string>
+    <string name="search_fail">搜索失败: </string>
+    <string name="search_network_error">网络连接失败</string>
+    <string name="search_request_error">请求失败</string>
+    <string name="search_prev">上一页</string>
+    <string name="search_next">下一页</string>
+    <string name="search_total_page">%1$d页</string>
+    <string name="search_page">第 %1$d 页</string>
+    <string name="search_history_clear">再次点击清空搜索历史</string>
+
+    <!-- 详情 -->
+    <string name="detail_title">详情</string>
+    <string name="detail_tap_read">点击封面开始阅读</string>
+    <string name="detail_page_count">页数</string>
+    <string name="detail_total_chapters">章节数</string>
+    <string name="detail_views">浏览</string>
+    <string name="detail_rate">评分</string>
+    <string name="detail_tags">标签</string>
+
+    <!-- 阅读器 -->
+    <string name="photo_page">第 %1$d 页</string>
+    <string name="photo_chapter_change">章节切换</string>
+    <string name="photo_page_jump">页码跳转</string>
+    <string name="photo_size_change">图片大小调整</string>
+    <string name="photo_brightness">亮度调节</string>
+    <string name="photo_brightness_auto">自动亮度中，拖动将临时切换为手动</string>
+    <string name="photo_chapter">章节</string>
+
+    <!-- 编辑漫画源 -->
+    <string name="edit_title">编辑漫画源</string>
+    <string name="edit_input">输入漫画源</string>
+    <string name="edit_added">已添加</string>
+    <string name="edit_added_http">已添加（HTTP 未加密，内容可能被窃听或篡改，请确认来源可信）</string>
+    <string name="edit_deleted">已删除</string>
+    <string name="edit_delete_confirm">再次点击删除</string>
+    <string name="edit_domain_error">请输入可用域名</string>
+    <string name="edit_timeout_error">未找到漫画源Config，请检查网络！</string>
+    <string name="edit_ssl_error">SSL证书错误</string>
+    <string name="edit_connection_error">连接被拒绝</string>
+    <string name="edit_unknown_request">无法请求漫画源，错误为</string>
+    <string name="edit_unknown_delete">无法删除当前已有漫画源，错误代码</string>
+    <string name="edit_unknown_read">无法读取当前已有漫画源，错误代码</string>
+    <string name="edit_storage_error">无法写入漫画源，存储已满</string>
+    <string name="edit_unknown_write">无法写入漫画源，错误代码</string>
+    <string name="edit_validation_empty">API地址不能为空</string>
+    <string name="edit_validation_domain">API地址格式不正确，支持域名或IP（可带端口）</string>
+
+    <!-- 阅读历史 -->
+    <string name="history_title">阅读历史</string>
+    <string name="history_loading">加载中...</string>
+    <string name="history_empty">暂无阅读记录</string>
+    <string name="history_delete_confirm">再次点击删除</string>
+    <string name="history_deleted">已删除！</string>
+    <string name="history_delete_failed">删除失败：%1$s</string>
+    <string name="history_chapter">第%1$s话</string>
+    <string name="history_page">第%1$s页</string>
+    <string name="history_page_indicator">第 %1$d 页</string>
+    <string name="history_prev">上一页</string>
+    <string name="history_next">下一页</string>
+    <string name="time_just_now">刚刚</string>
+    <string name="time_minutes_ago">%1$d分钟前</string>
+    <string name="time_hours_ago">%1$d小时前</string>
+    <string name="time_days_ago">%1$d天前</string>
+
+    <string name="storage_file_recovered">文件损坏，已备份并重置：%1$s</string>
+
+    <!-- 通用动作 -->
+    <string name="action_confirm">确定</string>
+    <string name="action_cancel">取消</string>
+    <string name="action_retry">重试</string>
+</resources>

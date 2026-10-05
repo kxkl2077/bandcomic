@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Wording mirrors the original Vela quick app's src/i18n/defaults.json -->
+<resources>
+    <string name="app_name">BandComic</string>
+
+    <!-- Home -->
+    <string name="home_placeholder">ID/Keyword</string>
+    <string name="home_tip">Try a keyword, or run Quick check on the About page</string>
+    <string name="tip_need_input">Enter ID or keyword</string>
+    <string name="loading_info">Loading...</string>
+    <string name="current_source">Source: </string>
+
+    <!-- About -->
+    <string name="about">About</string>
+    <string name="author">Author</string>
+    <string name="thanks">Thanks</string>
+    <string name="setting">Settings</string>
+
+    <!-- Settings -->
+    <string name="settings_search_page_size">Items per page</string>
+    <string name="settings_image_quality">Quality</string>
+    <string name="settings_image_size">Size</string>
+    <string name="settings_show_cover">Show cover</string>
+    <string name="settings_keep_zoom">Keep zoom</string>
+    <string name="settings_use_png">PNG image mode</string>
+    <string name="settings_preload">Preload pages</string>
+    <string name="settings_info_search_page_size">Number of search results per page</string>
+    <string name="settings_info_image_quality">Image quality percentage</string>
+    <string name="settings_info_image_size">Image display width in pixels</string>
+    <string name="settings_info_show_cover">Show cover in search results</string>
+    <string name="settings_info_keep_zoom">Keep current zoom when switching chapters</string>
+    <string name="settings_info_use_png">Request PNG images from the API. Recommended for Xiaomi Smart Band 10 Pro users</string>
+    <string name="settings_info_preload">Preload adjacent pages when reading online for faster page turns</string>
+
+    <!-- Errors -->
+    <string name="error_no_comic">No comics found</string>
+    <string name="error_network">Network error</string>
+    <string name="error_unknown">Error: </string>
+    <string name="error_invalid_response">Invalid response from comic source</string>
+    <string name="error_source_deleted">Source deleted</string>
+
+    <!-- Search -->
+    <string name="search_title">Search: </string>
+    <string name="search_searching">Searching...</string>
+    <string name="search_opening">Opening...</string>
+    <string name="search_no_found">No results</string>
+    <string name="search_fail">Failed: </string>
+    <string name="search_network_error">Network failed</string>
+    <string name="search_request_error">Request failed</string>
+    <string name="search_prev">Prev</string>
+    <string name="search_next">Next</string>
+    <string name="search_total_page">%1$dp</string>
+    <string name="search_page">P%1$d</string>
+    <string name="search_history_clear">Tap again to clear search history</string>
+
+    <!-- Details -->
+    <string name="detail_title">Details</string>
+    <string name="detail_tap_read">Tap cover to read</string>
+    <string name="detail_page_count">Pages</string>
+    <string name="detail_total_chapters">Chapters</string>
+    <string name="detail_views">Views</string>
+    <string name="detail_rate">Rating</string>
+    <string name="detail_tags">Tags</string>
+
+    <!-- Reader -->
+    <string name="photo_page">P%1$d</string>
+    <string name="photo_chapter_change">Switch</string>
+    <string name="photo_page_jump">Go to page</string>
+    <string name="photo_size_change">Resize</string>
+    <string name="photo_brightness">Brightness</string>
+    <string name="photo_brightness_auto">Auto brightness on; dragging will temporarily switch to manual</string>
+    <string name="photo_chapter">Ch</string>
+
+    <!-- Edit sources -->
+    <string name="edit_title">Edit Sources</string>
+    <string name="edit_input">Enter source</string>
+    <string name="edit_added">Added</string>
+    <string name="edit_added_http">Added (unencrypted HTTP: content may be intercepted or tampered with, only add trusted sources)</string>
+    <string name="edit_deleted">Deleted</string>
+    <string name="edit_delete_confirm">Tap again to delete</string>
+    <string name="edit_domain_error">Invalid domain</string>
+    <string name="edit_timeout_error">Source not found</string>
+    <string name="edit_ssl_error">SSL certificate error</string>
+    <string name="edit_connection_error">Connection refused</string>
+    <string name="edit_unknown_request">Request error, Code:</string>
+    <string name="edit_unknown_delete">Delete error, Code:</string>
+    <string name="edit_unknown_read">Read error, Code:</string>
+    <string name="edit_storage_error">Storage full</string>
+    <string name="edit_unknown_write">Write error, Code:</string>
+    <string name="edit_validation_empty">API URL cannot be empty</string>
+    <string name="edit_validation_domain">Invalid address. Domain or IP expected (port optional)</string>
+
+    <!-- Reading history -->
+    <string name="history_title">History</string>
+    <string name="history_loading">Loading...</string>
+    <string name="history_empty">No history</string>
+    <string name="history_delete_confirm">Tap twice to delete</string>
+    <string name="history_deleted">Deleted!</string>
+    <string name="history_delete_failed">Delete failed: %1$s</string>
+    <string name="history_chapter">Ch.%1$s</string>
+    <string name="history_page">P.%1$s</string>
+    <string name="history_page_indicator">P%1$d</string>
+    <string name="history_prev">Prev</string>
+    <string name="history_next">Next</string>
+    <string name="time_just_now">Just now</string>
+    <string name="time_minutes_ago">%1$dm ago</string>
+    <string name="time_hours_ago">%1$dh ago</string>
+    <string name="time_days_ago">%1$dd ago</string>
+
+    <string name="storage_file_recovered">File corrupted, backed up and reset: %1$s</string>
+
+    <!-- Generic actions -->
+    <string name="action_confirm">OK</string>
+    <string name="action_cancel">Cancel</string>
+    <string name="action_retry">Retry</string>
+</resources>

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 图标前景：沿用快应用版的漫画书页意象，重绘为矢量以适配自适应图标 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M34,30h40a4,4 0 0 1 4,4v40a4,4 0 0 1 -4,4h-40a4,4 0 0 1 -4,-4v-40a4,4 0 0 1 4,-4z" />
+    <path
+        android:fillColor="#101014"
+        android:pathData="M38,38h32v5h-32z" />
+    <path
+        android:fillColor="#101014"
+        android:pathData="M38,48h32v5h-32z" />
+    <path
+        android:fillColor="#101014"
+        android:pathData="M38,58h20v5h-20z" />
+    <path
+        android:fillColor="#FF3B30"
+        android:pathData="M34,30h6v48h-6z" />
+</vector>
