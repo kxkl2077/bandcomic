@@ -52,8 +52,26 @@ class ComicApi(
             .replace("<id>", id)
             .replace("<chapter>", chapter.toString())
 
-    fun buildConfigUrl(apiUrlBase: String): String =
-        apiUrlBase.trim().trimEnd('/') + "/config"
+    /**
+     * 拼 `/config` 地址。
+     *
+     * 用户在输入页填的地址已经过 `normalizeApiUrl` 处理，协议被剥掉，因此这里必须补回
+     * 默认的 HTTPS —— 对齐快应用版 `edit.ux` 的 `protocol + "://" + context + "/config"`。
+     * 缺了这一步会拼出没有 scheme 的字符串，OkHttp 直接抛 IllegalArgumentException。
+     * 若输入自带协议则原样保留。
+     */
+    fun buildConfigUrl(apiUrlBase: String): String {
+        val base = apiUrlBase.trim().trimEnd('/')
+        val withScheme =
+            if (base.startsWith("http://", ignoreCase = true) ||
+                base.startsWith("https://", ignoreCase = true)
+            ) {
+                base
+            } else {
+                "https://$base"
+            }
+        return "$withScheme/config"
+    }
 
     fun getJson(sourceKey: String, url: String): JsonElement =
         json.parseToJsonElement(fetchText(sourceKey, url).body)
@@ -64,13 +82,18 @@ class ComicApi(
     /**
      * 发起请求。HTTPS 握手/证书失败时自动回落明文 HTTP 并标记，
      * 对齐快应用 v2.1 起的 HTTP 回退行为（协议文档第 1 节）。
+     *
+     * 回落条件与 `edit.ux` 一致：仅在 HTTPS 因证书问题（ssl）或连接问题（connection）失败时
+     * 才降级；域名解析失败、超时等原样上报，避免把「域名打错了」误判成「需要降级」。
      */
     fun fetchText(sourceKey: String, url: String): FetchText {
         try {
             return FetchText(execute(sourceKey, url), false)
         } catch (e: IOException) {
             val apiError = classify(e)
-            if (apiError.type != ApiErrorType.SSL || !url.startsWith("https://")) throw apiError
+            val fallbackAllowed =
+                apiError.type == ApiErrorType.SSL || apiError.type == ApiErrorType.CONNECTION
+            if (!fallbackAllowed || !url.startsWith("https://")) throw apiError
             val fallbackUrl = "http://" + url.removePrefix("https://")
             try {
                 return FetchText(execute(sourceKey, fallbackUrl), true)

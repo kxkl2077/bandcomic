@@ -180,12 +180,31 @@ DataStore 的读取走 `flow`，不存在主线程阻塞死锁。
 否则会被父类吃掉）。`ErrorText.kt` 把它映射成本地化文案，
 所以界面拿到的是「网络超时」而不是一串英文异常。
 
-### 4.2 HTTPS → HTTP 回落
+### 4.2 协议补全与 HTTPS → HTTP 回落
 
-`ComicApi.fetchText` 在 HTTPS 握手失败（SSL 异常）时会尝试同一地址的 HTTP 版本。
-这条路径对应协议文档里自建源常见的自签名证书场景。
+用户输入页沿用原版 `edit.ux` 的 `normalizeApiUrl`，会把 `https?://` 前缀和尾部 `/`
+一并剥掉。原版在请求时用 `protocol + "://" + context + "/config"` 把协议拼回来，
+移植时漏掉了这一步，`buildConfigUrl` 只做纯字符串拼接，于是
+「在源管理页输入 `comic.kxkl2024.cn`」会拼出没有 scheme 的
+`comic.kxkl2024.cn/config`。OkHttp 在 `Request.Builder().url()` 阶段直接抛
+`IllegalArgumentException`，而它既不是 `IOException` 也不是 `ApiException`，
+被 `classify` 归入 `else -> UNKNOWN`，用户只看到一句「未知错误」。
+
+修复后 `buildConfigUrl` 补默认 `https://`（输入自带协议则原样保留），
+单测除了断言字符串，还用 `toHttpUrlOrNull()` 断言**每个结果都能被 OkHttp 解析**——
+回归点正是上面那个异常抛出的位置。
+
+`fetchText` 在 HTTPS 失败时会尝试同一地址的 HTTP 版本。回落条件对齐原版
+`fetchSourceConfig`：仅当失败类型是 **SSL（证书）或 CONNECTION（连接）** 时才降级；
+`DOMAIN` / `TIMEOUT` 原样上报，避免把「域名打错了」误判成「需要降级」。
 回落一旦发生，`AddSourceResult.insecure` 置真，源管理页会**显式提示**
 导入的源降级到了明文 HTTP，而不是静默接受。
+
+> 该缺陷是实测暴露的：`https://comic.kxkl2024.cn` 这类自带源的 `/config` 正常返回
+> 200，但图片接口 `/photo/...` 返回 **503** 且带官方反破解文案
+> （`{"code":210,"message":"請到官網更新最新APP…"}`）。也就是说，
+> **添加失败是客户端的协议缺陷，看图失败是服务端的按 IP 限制**，两者互不相关，
+> 排查时不要混为一谈。
 
 ---
 
@@ -199,6 +218,7 @@ DataStore 的读取走 `flow`，不存在主线程阻塞死锁。
 | `{apiUrl}{searchPath}`，`<text>`/`<page>` 替换，`<text>` 走 `encodeURIComponent` | `buildSearchUrl`（空格编码为 `%20` 而非 `+`） |
 | `{apiUrl}{photoPath}`，`<id>`/`<chapter>` 替换 | `buildPhotoUrl` |
 | `GET {api}/config` 返回 `{key: {...}}` 映射，`key` 取自外层 map 键 | `parseSourceConfig` |
+| 输入地址剥掉协议后，请求前补回默认 `https://` | `buildConfigUrl`（见 §4.2） |
 | `using` / `type` 为保留键 | `RESERVED_KEYS` |
 | `detailPath` 必须含 `<id>`、`searchPath` 必须含 `<text>`+`<page>` | 校验并给出 `reason` |
 | 图片参数 `width` / `quality` / `ifPNG` | `addImageParams(url, width, quality, usePng)` |
@@ -366,11 +386,11 @@ Wear Compose Material3 1.7.0 与手机版差异很大，以下都是**从 AAR �
 
 ### 8.2 自动化测试总览
 
-7 个测试套件 / 38 个用例，全部跑在 JVM 上（不需要真机或模拟器）：
+7 个测试套件 / 41 个用例，全部跑在 JVM 上（不需要真机或模拟器）：
 
 | 套件 | 用例 | 覆盖内容 |
 | --- | --- | --- |
-| `ProtocolContractTest` | 8 | 真实报文的协议解析、URL 构造、图片参数边界 |
+| `ProtocolContractTest` | 11 | 真实报文的协议解析、URL 构造（含补协议回归）、图片参数边界 |
 | `StorePersistenceTest` | 10 | 真实文件读写、跨实例持久化、原子写、损坏自愈 |
 | `AppLaunchTest` | 6 | 真实 Application 启动、容器装配、默认值、UA 形状 |
 | `AppViewModelTest` | 6 | 状态流接线、书架进度、搜索历史、源切换 |
@@ -379,7 +399,7 @@ Wear Compose Material3 1.7.0 与手机版差异很大，以下都是**从 AAR �
 | `RobolectricSmokeTest` | 1 | Robolectric 在最简路径上可用 |
 
 ```
-:app:testDebugUnitTest  →  tests=38  failures=0  errors=0  skipped=0
+:app:testDebugUnitTest  →  tests=41  failures=0  errors=0  skipped=0
 ```
 
 ### 8.3 运行时验证（Robolectric）
@@ -496,7 +516,7 @@ cd wearos
 adb install -r wearos\app\build\outputs\apk\debug\app-debug.apk
 ```
 
-单测（38 个用例，JVM 上跑，不需要设备）：
+单测（41 个用例，JVM 上跑，不需要设备）：
 
 ```powershell
 .\gradlew.bat :app:testDebugUnitTest

@@ -8,8 +8,10 @@ import moe.yzf.comic.wear.data.net.addCoverParams
 import moe.yzf.comic.wear.data.net.addImageParams
 import moe.yzf.comic.wear.data.net.addUrlParam
 import moe.yzf.comic.wear.data.source.parseSourceConfig
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -39,6 +41,14 @@ class ProtocolContractTest {
         {"MangaDex":{"apiUrl":"https://mangadex.yuzifu.top","detailPath":"/comic/<id>",
         "name":"MangaDex","photoPath":"/photo/<id>/ch/<chapter>",
         "searchPath":"/search/<text>/<page>","type":"mangadex"}}
+    """.trimIndent()
+
+    // 实测 GET https://comic.kxkl2024.cn/config 原文（2026-10）：
+    // 注意 apiUrl 是**明文 http**，且 photoPath 用的是 <chapter> 占位。
+    private val copyMangaConfigBody = """
+        {"CopyManga":{"name":"拷贝漫画","apiUrl":"http://comic.kxkl2024.cn",
+        "detailPath":"/album/<id>","photoPath":"/photo/<id>/chapter/<chapter>",
+        "searchPath":"/search/<text>/<page>","type":"copymanga"}}
     """.trimIndent()
 
     // 实测 GET {api}/search/one/1 原文（截取前两条，字段完整保留）
@@ -215,5 +225,62 @@ class ProtocolContractTest {
         // using 是保留键，不能被当成源。
         assertEquals("reserved key", entries["using"]!!.reason)
         assertNull(entries["using"]!!.source)
+    }
+
+    @Test
+    fun `明文 http 的源能通过校验`() {
+        val entry = parseSourceConfig(api.parseJson(copyMangaConfigBody)).single()
+        assertNull(entry.reason)
+        val source = requireNotNull(entry.source)
+        assertEquals("CopyManga", source.key)
+        assertEquals("拷贝漫画", source.name)
+        // apiUrl 为明文 http 也必须接受，不能因为不是 https 就判非法。
+        assertEquals("http://comic.kxkl2024.cn", source.apiUrl)
+        assertEquals("/photo/<id>/chapter/<chapter>", source.photoPath)
+        assertEquals("copymanga", source.type)
+    }
+
+    @Test
+    fun `config 地址补回协议且始终能被 OkHttp 解析`() {
+        // 用户输入会被 normalizeApiUrl 剥掉协议，拼请求地址时必须补回默认 HTTPS。
+        assertEquals("https://comic.kxkl2024.cn/config", api.buildConfigUrl("comic.kxkl2024.cn"))
+        assertEquals("https://comic.kxkl2024.cn/config", api.buildConfigUrl("comic.kxkl2024.cn/"))
+        assertEquals("https://comic.kxkl2024.cn/config", api.buildConfigUrl("  comic.kxkl2024.cn  "))
+        // 自带协议时原样保留，不重复拼。
+        assertEquals("http://comic.kxkl2024.cn/config", api.buildConfigUrl("http://comic.kxkl2024.cn"))
+        assertEquals(
+            "https://comic.kxkl2024.cn/config",
+            api.buildConfigUrl("https://comic.kxkl2024.cn/"),
+        )
+        // 带端口的域名 / 裸 IP 同样要处理。
+        assertEquals("https://comic.kxkl2024.cn:8080/config", api.buildConfigUrl("comic.kxkl2024.cn:8080"))
+        assertEquals("https://1.2.3.4:8080/config", api.buildConfigUrl("1.2.3.4:8080"))
+
+        // 关键回归点：上面每个结果都必须能被 OkHttp 解析。
+        // 缺协议时 OkHttp 会抛 IllegalArgumentException，而它既不是 IOException 也不是
+        // ApiException，会被 classify 归为 UNKNOWN，用户只看到一句「未知错误」。
+        val inputs =
+            listOf(
+                "comic.kxkl2024.cn",
+                "comic.kxkl2024.cn/",
+                "comic.kxkl2024.cn:8080",
+                "http://comic.kxkl2024.cn",
+                "https://comic.kxkl2024.cn/",
+                "1.2.3.4:8080",
+            )
+        for (input in inputs) {
+            val url = api.buildConfigUrl(input)
+            assertNotNull("OkHttp 必须能解析这个地址：$url", url.toHttpUrlOrNull())
+        }
+    }
+
+    @Test
+    fun `无协议地址不再落到 UNKNOWN 而是补齐后可请求`() {
+        // 这一条钉的是线上反馈的那个缺陷：输入 comic.kxkl2024.cn 添加源时报 UNKNOWN。
+        val url = api.buildConfigUrl("comic.kxkl2024.cn")
+        val httpUrl = requireNotNull(url.toHttpUrlOrNull())
+        assertEquals("https", httpUrl.scheme)
+        assertEquals("comic.kxkl2024.cn", httpUrl.host)
+        assertEquals("/config", httpUrl.encodedPath)
     }
 }
