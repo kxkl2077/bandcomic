@@ -1,64 +1,123 @@
-name: Release
+name: Build
+
+# 本仓库是 Wear OS 原生版，构建产物是 **APK**，不再是快应用的 `.rpk`。
+# 关键差异（改动原因）：
+#   1. Gradle 工程根在 wearos/，仓库根目录是快应用工程，不参与构建；
+#   2. 不需要 Vela 签名证书，因此不再强制要求任何 secret；
+#   3. 依赖 Android SDK（JDK + platforms;android-37.1），而不是 Node/yarn。
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches: [main]
+    tags: ['v*']
+  pull_request:
   workflow_dispatch:
     inputs:
       tag_name:
-        description: 'Tag to release (e.g. v2.3)'
+        description: '要发布的 tag（如 v1.0.0）；留空则只构建，不发布'
         required: false
         type: string
 
 permissions:
   contents: write
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  build-and-release:
+  build:
+    name: 构建 APK
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        # Gradle 工程根在 wearos/，仓库根没有 gradlew
+        working-directory: wearos
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          # AGP 9.4.1 的模块元数据声明 org.gradle.jvm.version=17（最低 JDK 17），
+          # 这里取 25，与本地验证通过的 Zulu 25 工具链一致。
+          java-version: '25'
+
+      - name: 安装 Android SDK 命令行工具
+        uses: android-actions/setup-android@v3
+
+      - name: 安装 SDK 组件
+        # compileSdk = 37 且 compileSdkMinor = 1，必须落到 platforms;android-37.1，
+        # 只装 platforms;android-37 是不够的。
+        run: |
+          sdkmanager --install "platform-tools" "platforms;android-37.1" "build-tools;37.0.0"
+
+      - name: 缓存 Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('wearos/gradle/libs.versions.toml', 'wearos/gradle/wrapper/gradle-wrapper.properties', 'wearos/**/build.gradle.kts') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
+
+      - name: 确保 gradlew 可执行
+        # 该文件在 git 里曾被提交成 100644，Linux runner 上 ./gradlew 会 Permission denied。
+        # 已用 `git update-index --chmod=+x` 修正，这里再兜一次底。
+        run: chmod +x gradlew
+
+      - name: 单元测试
+        # 91 个用例 / 10 个套件，全在 JVM 上跑（Robolectric 代替真机）。
+        # 所需的 --add-opens / --add-exports 已写在 app/build.gradle.kts 的 Test 任务里。
+        run: ./gradlew :app:testDebugUnitTest --console=plain
+
+      - name: 构建 Debug APK
+        # release 变体没有配置签名，assembleRelease 产出的是 unsigned 包（装不上），
+        # 因此默认交付可直接安装的 debug 包。
+        run: ./gradlew :app:assembleDebug --console=plain
+
+      - name: 整理产物
+        run: |
+          mkdir -p ../dist
+          cp app/build/outputs/apk/debug/app-debug.apk ../dist/comic-wear-debug.apk
+          ls -lh ../dist
+          sha256sum ../dist/*.apk
+
+      - name: 上传 APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: comic-wear-apk
+          path: dist/comic-wear-debug.apk
+          if-no-files-found: error
+
+  release:
+    name: 发布 Release
+    needs: build
+    # 只在 tag push 或手动指定 tag 时发布；注意不能写成 `inputs.tag_name != ''`，
+    # push 事件下该值为 null，null != '' 会成立，导致每次 push 都发版。
+    if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && github.event.inputs.tag_name != '')
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - name: 下载构建产物
+        uses: actions/download-artifact@v4
         with:
-          fetch-depth: 0
+          name: comic-wear-apk
+          path: dist
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: 'yarn'
-
-      - name: Install dependencies
-        run: yarn install --frozen-lockfile
-
-      - name: Setup signing certificates
-        env:
-          SIGN_CERTIFICATE: ${{ secrets.SIGN_CERTIFICATE }}
-          SIGN_PRIVATE_KEY: ${{ secrets.SIGN_PRIVATE_KEY }}
+      - name: 按 tag 重命名
         run: |
-          mkdir -p sign
-          if [ -n "$SIGN_CERTIFICATE" ] && [ -n "$SIGN_PRIVATE_KEY" ]; then
-            printf "%s\n" "$SIGN_CERTIFICATE" > sign/certificate.pem
-            printf "%s\n" "$SIGN_PRIVATE_KEY" > sign/private.pem
-            chmod 600 sign/private.pem
-            echo "Signing certificates configured successfully from secrets."
-          else
-            echo "::error::SIGN_CERTIFICATE or SIGN_PRIVATE_KEY secret is not set!"
-            exit 1
-          fi
+          TAG="${{ github.event.inputs.tag_name || github.ref_name }}"
+          mv dist/comic-wear-debug.apk "dist/comic-wear-${TAG}.apk"
+          ls -lh dist
 
-      - name: Build release package
-        run: yarn run release
-
-      - name: List build artifacts
-        run: ls -la dist/
-
-      - name: Publish GitHub Release
+      - name: 发布
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event.inputs.tag_name || github.ref_name }}
-          files: dist/*.rpk
+          files: dist/*.apk
           generate_release_notes: true
           draft: false
           prerelease: false

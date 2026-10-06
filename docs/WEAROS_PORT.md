@@ -676,8 +676,8 @@ git merge upstream/main
 | --- | --- | --- |
 | `78919b9` | [feat(source)] 加固八源运行规则与错误诊断 | **已跟随**，见 11.3 |
 | `4098323` | [style] 重写主要说明文档 | 冲突，按 fork 定位保留本仓库的 Wear OS 版 README |
-| `cf3e4a2` | [ci] 添加 GitHub Actions 自动化发版工作流 | 直接并入（`.github/workflows/release.yml`，面向快应用发版） |
-| `86ffc63` | [ci] 完善工作流 release tag 传参支持 | 直接并入 |
+| `cf3e4a2` | [ci] 添加 GitHub Actions 自动化发版工作流 | **已重写**，见 11.4 |
+| `86ffc63` | [ci] 完善工作流 release tag 传参支持 | **已重写**，见 11.4 |
 
 冲突面只有 `README.md` 一个文件：上游把它重写成面向 Vela 设备的产品说明，
 而本仓库的 README 描述 Wear OS 移植（且被要求删去 AstroBox 等 Wear OS 用不上的能力）。
@@ -707,4 +707,31 @@ git merge upstream/main
 2. **结构化的错误呈现**。上游会给出 `[源名] [状态码] 描述`（含 HTTP 语义表与 curl 错误码表）；
    本移植的 `errorText` 仍只映射到「网络连接失败 / 请求失败 / 未知错误」三档。
    两者都需要新增 `error.http.*` / `error.curl.*` 文案键。
+
+### 11.4 CI 工作流重写（`.github/workflows/release.yml`）
+
+上游带来的 workflow 是给**快应用**用的，在本 fork 上必然失败，原因有三条：
+
+1. 它跑 `yarn install` + `yarn run release`（`node tools/build-release.mjs --enable-jsc`），
+   打的是 Vela 的 `.rpk`；本仓库的产物是 Gradle 出的 APK。
+2. 它**强制要求** `SIGN_CERTIFICATE` / `SIGN_PRIVATE_KEY` 两个 secret，缺失就 `exit 1`。
+   这两个是 Vela 签名证书，Wear OS 侧既不需要也没有。
+3. Gradle 工程根在 `wearos/`，而它在仓库根执行——根目录没有 `gradlew`。
+
+重写后的要点：
+
+- 工作目录固定 `wearos/`，用 `./gradlew`；
+- JDK 取 25（与本地验证过的工具链一致）。依据：`com.android.tools.build:gradle:9.4.1`
+  的模块元数据声明 `org.gradle.jvm.version=17`，即最低 JDK 17；
+- 装 SDK 组件必须写 `platforms;android-37.1`——因为 `compileSdk = 37` 配
+  `compileSdkMinor = 1`，只装 `platforms;android-37` 定位不到；
+- 不再依赖任何 secret，默认交付**可安装的 debug APK**。
+  注：`release` 变体没有配置 signingConfig，`assembleRelease` 产出的是 unsigned 包（装不上），
+  所以这里刻意不发它；
+- `gradlew` 曾被提交成 `100644`（无执行位），Linux runner 上 `./gradlew` 会 Permission denied。
+  已用 `git update-index --chmod=+x` 修正，workflow 里另有 `chmod +x` 兜底；
+- 发布条件的写法是 `startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && ...)`。
+  **不能**简写成 `inputs.tag_name != ''`：push 事件下该值为 null，而 `null != ''` 成立，
+  会导致每次 push 都发版。
+
 
