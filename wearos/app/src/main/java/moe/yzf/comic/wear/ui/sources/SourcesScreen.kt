@@ -114,7 +114,7 @@ fun SourcesScreen(viewModel: AppViewModel, onBack: () -> Unit, onAdd: () -> Unit
                     horizontalAlignment = Alignment.CenterHorizontally,
                     contentPadding = PaddingValues(top = 4.dp, bottom = 28.dp),
                 ) {
-                    items(sources) { source ->
+                    items(sources, key = { it.key }) { source ->
                         SourceRow(
                             source = source,
                             isCurrent = source.key == current?.key,

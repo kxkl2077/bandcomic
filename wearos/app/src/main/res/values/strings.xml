@@ -64,12 +64,13 @@
 
     <!-- Reader -->
     <string name="photo_page">P%1$d</string>
-    <string name="photo_chapter_change">Switch</string>
+    <string name="photo_chapter_change">Tap chapter no. to jump</string>
     <string name="photo_page_jump">Go to page</string>
     <string name="photo_size_change">Resize</string>
     <string name="photo_brightness">Brightness</string>
     <string name="photo_brightness_auto">Auto brightness on; dragging will temporarily switch to manual</string>
     <string name="photo_chapter">Ch</string>
+    <string name="photo_chapter_pick">Chapters</string>
 
     <!-- Edit sources -->
     <string name="edit_title">Edit Sources</string>

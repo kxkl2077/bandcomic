@@ -64,12 +64,13 @@
 
     <!-- 阅读器 -->
     <string name="photo_page">第 %1$d 页</string>
-    <string name="photo_chapter_change">章节切换</string>
+    <string name="photo_chapter_change">点章节号可直达</string>
     <string name="photo_page_jump">页码跳转</string>
     <string name="photo_size_change">图片大小调整</string>
     <string name="photo_brightness">亮度调节</string>
     <string name="photo_brightness_auto">自动亮度中，拖动将临时切换为手动</string>
     <string name="photo_chapter">章节</string>
+    <string name="photo_chapter_pick">章节选择</string>
 
     <!-- 编辑漫画源 -->
     <string name="edit_title">编辑漫画源</string>

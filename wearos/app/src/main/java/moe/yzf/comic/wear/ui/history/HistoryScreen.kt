@@ -108,7 +108,7 @@ fun HistoryScreen(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     contentPadding = PaddingValues(top = 4.dp, bottom = 8.dp),
                 ) {
-                    items(slice) { entry ->
+                    items(slice, key = { it.sourceKey + "/" + it.id }) { entry ->
                         SwipeableHistoryCard(
                             entry = entry,
                             quality = settings.imageQuality,

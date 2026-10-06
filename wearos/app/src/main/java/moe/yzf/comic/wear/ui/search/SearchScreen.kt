@@ -144,7 +144,7 @@ fun SearchScreen(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     contentPadding = PaddingValues(top = 4.dp, bottom = 8.dp),
                 ) {
-                    items(items) { item ->
+                    items(items, key = { it.comicId }) { item ->
                         SearchResultCard(
                             item = item,
                             showCover = settings.showCoverInSearch,

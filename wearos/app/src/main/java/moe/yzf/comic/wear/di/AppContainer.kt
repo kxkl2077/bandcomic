@@ -98,7 +98,9 @@ class AppContainer(private val context: Context) {
                         .maxSizeBytes(256L * 1024 * 1024)
                         .build()
                 }
-                .crossfade(true)
+                // 刻意关掉 crossfade：漫画翻页要的是「立刻看到」，
+                // 淡入那一下反而像卡了一帧；相邻页已由 beyondViewportPageCount 预取
+                .crossfade(false)
                 .build()
         }
     }
