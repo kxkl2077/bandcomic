@@ -234,6 +234,17 @@ adb install -r wearos/app/build/outputs/apk/debug/app-debug.apk
   本项目的数据结构、漫画源协议与界面设计均源自其快应用版。
 - 原项目致谢 **OrPudding**、**NEORUAA**、**无源流沙**。
 
+## 开发工具声明
+
+本项目 **Wear OS 移植部分**（`wearos/` 目录、相关文档与 CI 工作流）的开发过程中，
+使用了 **DeepSeek Harness** 辅助完成，包括代码实现、重构、单元测试编写，
+以及 GitHub Actions 工作流的编写与排障。
+
+所有 AI 参与产出的内容均经过人工审阅与实测验证：本地 Gradle 构建、
+JVM 单元测试（以 Robolectric 代替真机）以及真机端到端联调。
+
+原 Vela 快应用版（`src/` 目录）为上游原创作品，不属于上述范围。
+
 ## License
 
 本项目基于 [AGPL-3.0 License](https://www.gnu.org/licenses/agpl-3.0.html) 开源，请遵守相关协议规定。
