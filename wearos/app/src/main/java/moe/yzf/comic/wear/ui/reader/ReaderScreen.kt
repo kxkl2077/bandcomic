@@ -179,6 +179,10 @@ fun ReaderScreen(
     // 缩放的唯一真相。用 MutableFloatState 而不是普通 Float：
     // 这样它的变化只在「真正读它的地方」生效，捏合时可以只走绘制阶段。
     val zoomState = remember { mutableFloatStateOf(ZOOM_MIN) }
+    // 非当前页读这个恒为 1x 的状态。
+    // beyondViewportPageCount 会把相邻页一起组合，如果它们和当前页共用同一个缩放状态对象，
+    // 捏合时就会「横向排开的所有页一起放大」——曾经就是这个 bug。
+    val flatZoom = remember { mutableFloatStateOf(ZOOM_MIN) }
     // 只有「是否已放大」这个布尔量参与组合，跨越 1x 边界时才会重组 Pager
     val zoomed by remember { derivedStateOf { zoomState.floatValue > ZOOM_MIN } }
     var bright by remember { mutableFloatStateOf(50f) }
@@ -245,6 +249,20 @@ fun ReaderScreen(
         if (!settings.keepDefaultZoom) zoomState.floatValue = ZOOM_MIN
     }
 
+    /**
+     * 跳到第 [index] 页（0 基）。翻页前先把缩放收回 1x。
+     *
+     * 两个原因：放大时 Pager 的滑动被 `userScrollEnabled` 关掉，翻页只能靠这里的动画，
+     * 而相邻页是 1x，落位后当前页却会吃缩放值，动画结束会跳一下；
+     * 而且「每页都从适应屏幕开始」比「上一页的缩放跟着下一页走」更好预期。
+     * 注意这只处理翻页——换章的缩放由 keepDefaultZoom 决定，两者互不干扰。
+     */
+    fun goToPage(index: Int) {
+        val target = index.coerceIn(0, (urls.size - 1).coerceAtLeast(0))
+        if (target != pagerState.currentPage) zoomState.floatValue = ZOOM_MIN
+        scope.launch { pagerState.animateScrollToPage(target) }
+    }
+
     Box(Modifier.fillMaxSize().background(Palette.Background)) {
         when {
             loading -> CenterMessage(stringResource(R.string.loading_info))
@@ -281,12 +299,14 @@ fun ReaderScreen(
                     // 「相邻页预加载」设置真正生效：多留一页在合成范围内
                     beyondViewportPageCount = if (settings.preload) 1 else 0,
                 ) { index ->
+                    // 只有当前页吃缩放值，相邻页恒为 1x —— 这是「所有页一起放大」的根因修复
+                    val pageZoom = if (index == pagerState.currentPage) zoomState else flatZoom
                     ReaderPage(
                         src = urls[index],
                         width = settings.imageSize,
                         quality = settings.imageQuality,
                         usePng = settings.imageUsePng,
-                        zoomState = zoomState,
+                        zoomState = pageZoom,
                         onSetZoom = { target ->
                             zoomState.floatValue = target.coerceIn(ZOOM_MIN, ZOOM_MAX)
                         },
@@ -319,9 +339,7 @@ fun ReaderScreen(
                                 .align(Alignment.CenterStart)
                                 .padding(start = Dim.edge)
                                 .clickable {
-                                    if (pagerState.currentPage > 0) {
-                                        scope.launch { pagerState.animateScrollToPage(pagerState.currentPage - 1) }
-                                    }
+                                    if (pagerState.currentPage > 0) goToPage(pagerState.currentPage - 1)
                                 },
                     )
                     GlyphChevron(
@@ -333,9 +351,7 @@ fun ReaderScreen(
                                 .align(Alignment.CenterEnd)
                                 .padding(end = Dim.edge)
                                 .clickable {
-                                    if (pagerState.currentPage < urls.size - 1) {
-                                        scope.launch { pagerState.animateScrollToPage(pagerState.currentPage + 1) }
-                                    }
+                                    if (pagerState.currentPage < urls.size - 1) goToPage(pagerState.currentPage + 1)
                                 },
                     )
                     // 圆屏底部居中的 ✓ → 设置面板（原版 check.png → toggleSettings）
@@ -362,10 +378,7 @@ fun ReaderScreen(
                         onChapter = { delta -> goToChapter(chapter + delta) },
                         onPickChapter = { picker = PickerTarget.Chapter },
                         onPickPage = { picker = PickerTarget.Page },
-                        onPage = { target ->
-                            val t = (target - 1).coerceIn(0, (urls.size - 1).coerceAtLeast(0))
-                            scope.launch { pagerState.scrollToPage(t) }
-                        },
+                        onPage = { target -> goToPage(target - 1) },
                         // 滑杆按 0.1 档走，避免出现 1.9000001 这种显示
                         onZoom = { v ->
                             zoomState.floatValue =
@@ -396,9 +409,7 @@ fun ReaderScreen(
                             if (isChapter) {
                                 goToChapter(num)
                             } else {
-                                scope.launch {
-                                    pagerState.scrollToPage((num - 1).coerceIn(0, (urls.size - 1).coerceAtLeast(0)))
-                                }
+                                goToPage(num - 1)
                             }
                         },
                         onDismiss = { picker = null },
