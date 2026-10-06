@@ -734,4 +734,26 @@ git merge upstream/main
   **不能**简写成 `inputs.tag_name != ''`：push 事件下该值为 null，而 `null != ''` 成立，
   会导致每次 push 都发版。
 
+#### 11.4.1 首次上线时真实挂掉的两个点
+
+第一版重写后 CI 仍然失败（run #2，18 秒）。看 job 的逐步结论，是**第 4 步
+「安装 Android SDK 命令行工具」失败**，其后全部 skipped——也就是说 JDK、SDK 组件、
+Gradle 逻辑根本没跑到。查出来是两个独立问题：
+
+1. **`android-actions/setup-android` 必须用 `@v4`，不能用 `@v3`。**
+   对比两个 tag 的 `action.yml`：v3 的 `packages` 默认值是 `'tools platform-tools'`，
+   v4 是 `'platform-tools'`。Google **已经移除旧的 `tools` 包**，v3 于是卡在安装一个
+   不存在的包上直接失败——v4.0.2 的发布说明写的就是「Fix for removed tools package.」。
+   （顺带：v3 的 cmdline-tools 默认版本是 `12266719`，v4 是 `15859902`；v3 跑在 node20、v4 在 node24。
+   注意 node20 **不是**原因：同一次运行里 `checkout@v4`、`setup-java@v4` 都是 node20 且成功。）
+2. **包 id 要用斜杠形式 `platforms/android-37.1`，不要用分号形式 `platforms;android-37.1`。**
+   分号在某些外壳下会被当成参数分隔符，实测 sdkmanager 收到的是 `platforms`、`android-37.1`、
+   `build-tools`、`37.0.0` 四个参数，逐个报 `Package ... not found`。
+   斜杠形式不含 shell 特殊字符，实测零报错，且正是 `sdkmanager --list` 打印的形式。
+
+另外记录一个环境事实：本机 SDK 的 `sdkmanager` 会警告
+「The SDK Manager CLI tool (sdkmanager) is deprecated. Android CLI will be used instead」，
+替代品是 cmdline-tools 目录下的 `android sdk`。当前仍以警告方式可用，故未切换。
+
+
 

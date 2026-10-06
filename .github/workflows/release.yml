@@ -46,13 +46,22 @@ jobs:
           java-version: '25'
 
       - name: 安装 Android SDK 命令行工具
-        uses: android-actions/setup-android@v3
+        # 必须用 v4：v3 的 action.yml 里 packages 默认值是 'tools platform-tools'，
+        # 而 Google 已经移除旧的 tools 包，于是 v3 会卡在安装不存在的包上直接失败
+        # （v4.0.2 的发布说明就是「Fix for removed tools package.」）。
+        # v3 另有 cmdline-tools 默认版本过旧、运行于 node20 的问题。
+        uses: android-actions/setup-android@v4
+        with:
+          packages: platform-tools
 
       - name: 安装 SDK 组件
-        # compileSdk = 37 且 compileSdkMinor = 1，必须落到 platforms;android-37.1，
-        # 只装 platforms;android-37 是不够的。
+        # compileSdk = 37 且 compileSdkMinor = 1，必须落到 platforms/android-37.1，
+        # 只装 platforms/android-37 是不够的。
+        # 用斜杠形式而非 `platforms;android-37.1`：斜杠形式不含 shell 特殊字符，
+        # 不会被 cmd/PowerShell 之类的外壳按分号拆成 `platforms` 和 `android-37.1`
+        # 两个不存在的包（sdkmanager --list 输出的也正是斜杠形式）。
         run: |
-          sdkmanager --install "platform-tools" "platforms;android-37.1" "build-tools;37.0.0"
+          sdkmanager --install "platform-tools" "platforms/android-37.1" "build-tools/37.0.0"
 
       - name: 缓存 Gradle
         uses: actions/cache@v4
