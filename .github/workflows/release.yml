@@ -4,7 +4,7 @@ name: Build
 # 关键差异（改动原因）：
 #   1. Gradle 工程根在 wearos/，仓库根目录是快应用工程，不参与构建；
 #   2. 不需要 Vela 签名证书，因此不再强制要求任何 secret；
-#   3. 依赖 Android SDK（JDK + platforms;android-37.1），而不是 Node/yarn。
+#   3. 依赖 Android SDK（JDK + platforms/android-37.1），而不是 Node/yarn。
 
 on:
   push:
@@ -35,51 +35,52 @@ jobs:
         working-directory: wearos
     steps:
       - name: 检出代码
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: 安装 JDK
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           # AGP 9.4.1 的模块元数据声明 org.gradle.jvm.version=17（最低 JDK 17），
           # 这里取 25，与本地验证通过的 Zulu 25 工具链一致。
           java-version: '25'
 
-      - name: 安装 Android SDK 命令行工具
+      - name: 准备 Android SDK 命令行工具
         # 必须用 v4：v3 的 action.yml 里 packages 默认值是 'tools platform-tools'，
-        # 而 Google 已经移除旧的 tools 包，于是 v3 会卡在安装不存在的包上直接失败
-        # （v4.0.2 的发布说明就是「Fix for removed tools package.」）。
-        # v3 另有 cmdline-tools 默认版本过旧、运行于 node20 的问题。
+        # 而 Google 已移除旧的 tools 包，v3 会卡在安装一个不存在的包上直接失败
+        # （v4.0.2 的发布说明写的就是「Fix for removed tools package.」）。
         uses: android-actions/setup-android@v4
         with:
           packages: platform-tools
 
-      - name: 诊断 SDK 环境
-        # 日志需要仓库 admin 权限才能读；annotations 是公开的，所以把关键事实
-        # 用 workflow command 打成 annotation，便于定位失败原因。
-        # 本步骤永不失败。
+      - name: 补装缺失的 SDK 组件
+        # 两条实测结论决定了这里的写法：
+        #   1. runner 镜像通常已自带 platforms/android-37.1 与 build-tools/37.0.0，
+        #      所以先按目录判断，齐备就完全跳过安装；
+        #   2. 本版 sdkmanager 已弃用，而且**退出码不可信**——对不存在的包它也返回 0，
+        #      所以安装结果一律以目标目录是否存在为准，不看它的退出码。
+        # compileSdk = 37 配 compileSdkMinor = 1，必须落到 platforms/android-37.1，
+        # 只装 platforms/android-37 定位不到。
         run: |
           SDK="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
-          echo "::notice title=SDKROOT::${SDK:-EMPTY}"
-          echo "::notice title=CMDLINE::$(cat "$SDK"/cmdline-tools/*/source.properties 2>/dev/null | grep -E 'Pkg.Revision|Pkg.Path' | tr '\n' ' ')"
-          echo "::notice title=SDKMANAGER_PATH::$(command -v sdkmanager || echo MISSING)"
-          echo "::notice title=ANDROID_CLI_PATH::$(command -v android || echo MISSING)"
-          echo "::notice title=INSTALLED_PLATFORMS::$(ls "$SDK"/platforms 2>/dev/null | tr '\n' ' ')"
-          echo "::notice title=INSTALLED_BUILDTOOLS::$(ls "$SDK"/build-tools 2>/dev/null | tr '\n' ' ')"
-          echo "::notice title=LIST_37_COUNT::$(sdkmanager --list 2>/dev/null | grep -c 'android-37')"
-          echo "::notice title=SM_INSTALL_TAIL::$(sdkmanager --install 'platforms/android-37.1' 2>&1 | tail -4 | tr '\n' '|')"
-        continue-on-error: true
-
-      - name: 安装 SDK 组件
-        # compileSdk = 37 且 compileSdkMinor = 1，必须落到 platforms/android-37.1，
-        # 只装 platforms/android-37 是不够的。
-        # 用斜杠形式而非 `platforms;android-37.1`：分号会被外壳当成参数分隔符，
-        # 拆成 `platforms` 和 `android-37.1` 两个不存在的包（--list 输出的也是斜杠形式）。
-        run: |
-          sdkmanager --install "platform-tools" "platforms/android-37.1" "build-tools/37.0.0"
+          echo "SDK root: $SDK"
+          need=""
+          for p in platform-tools platforms/android-37.1 build-tools/37.0.0; do
+            [ -d "$SDK/$p" ] || need="$need $p"
+          done
+          if [ -z "$need" ]; then
+            echo "SDK 组件已齐备，跳过安装"
+            exit 0
+          fi
+          echo "需要补装:$need"
+          sdkmanager --install $need || true
+          for p in $need; do
+            [ -d "$SDK/$p" ] || { echo "::error::$p 安装失败"; exit 1; }
+          done
+          echo "补装完成"
 
       - name: 缓存 Gradle
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.gradle/caches
@@ -99,7 +100,7 @@ jobs:
         run: ./gradlew :app:testDebugUnitTest --console=plain
 
       - name: 构建 Debug APK
-        # release 变体没有配置签名，assembleRelease 产出的是 unsigned 包（装不上），
+        # release 变体没有配置 signingConfig，assembleRelease 产出的是 unsigned 包（装不上），
         # 因此默认交付可直接安装的 debug 包。
         run: ./gradlew :app:assembleDebug --console=plain
 
@@ -111,7 +112,7 @@ jobs:
           sha256sum ../dist/*.apk
 
       - name: 上传 APK
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: comic-wear-apk
           path: dist/comic-wear-debug.apk
@@ -126,7 +127,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: 下载构建产物
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: comic-wear-apk
           path: dist
