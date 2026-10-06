@@ -734,24 +734,53 @@ git merge upstream/main
   **不能**简写成 `inputs.tag_name != ''`：push 事件下该值为 null，而 `null != ''` 成立，
   会导致每次 push 都发版。
 
-#### 11.4.1 首次上线时真实挂掉的两个点
+#### 11.4.1 真实排障过程与最终修法
 
-第一版重写后 CI 仍然失败（run #2，18 秒）。看 job 的逐步结论，是**第 4 步
-「安装 Android SDK 命令行工具」失败**，其后全部 skipped——也就是说 JDK、SDK 组件、
-Gradle 逻辑根本没跑到。查出来是两个独立问题：
+上线后连挂三次，每次都得靠**公开信息**定位——因为 job 日志需要仓库 admin 权限
+（匿名拉 `/actions/jobs/{id}/logs` 返回 403），而 **annotations 与 job 的逐步结论是公开的**。
+这两条就是当时唯一的观测通道。
 
-1. **`android-actions/setup-android` 必须用 `@v4`，不能用 `@v3`。**
-   对比两个 tag 的 `action.yml`：v3 的 `packages` 默认值是 `'tools platform-tools'`，
-   v4 是 `'platform-tools'`。Google **已经移除旧的 `tools` 包**，v3 于是卡在安装一个
-   不存在的包上直接失败——v4.0.2 的发布说明写的就是「Fix for removed tools package.」。
-   （顺带：v3 的 cmdline-tools 默认版本是 `12266719`，v4 是 `15859902`；v3 跑在 node20、v4 在 node24。
-   注意 node20 **不是**原因：同一次运行里 `checkout@v4`、`setup-java@v4` 都是 node20 且成功。）
-2. **包 id 要用斜杠形式 `platforms/android-37.1`，不要用分号形式 `platforms;android-37.1`。**
-   分号在某些外壳下会被当成参数分隔符，实测 sdkmanager 收到的是 `platforms`、`android-37.1`、
-   `build-tools`、`37.0.0` 四个参数，逐个报 `Package ... not found`。
-   斜杠形式不含 shell 特殊字符，实测零报错，且正是 `sdkmanager --list` 打印的形式。
+**第 1 次（run #2，18 秒）**：第 4 步「安装 Android SDK 命令行工具」失败，其后全 skipped，
+说明 JDK/SDK/Gradle 逻辑根本没跑到。对比两个 tag 的 `action.yml`：
+v3 的 `packages` 默认值是 `'tools platform-tools'`，v4 是 `'platform-tools'`。
+**Google 已移除旧的 `tools` 包**，v3 于是卡在安装一个不存在的包上直接失败
+（v4.0.2 的发布说明即「Fix for removed tools package.」）。→ 改用 `@v4`。
+顺带排除一个误判：node20 **不是**原因，同一次运行里 `checkout@v4`、`setup-java@v4`
+都是 node20 且成功。
 
-另外记录一个环境事实：本机 SDK 的 `sdkmanager` 会警告
+**第 2 次（run #3，27 秒）**：`@v4` 生效，第 4 步转绿；改成第 5 步「安装 SDK 组件」失败，
+且只有 2 秒。→ 又踩一坑：包 id 的分号形式 `platforms;android-37.1` 会被外壳按分号拆开，
+sdkmanager 实际收到 `platforms`、`android-37.1`、`build-tools`、`37.0.0` 四个参数，
+逐个报 `Package ... not found`。改用斜杠形式（也正是 `sdkmanager --list` 打印的形式）。
+
+**第 3 次（run #4，26 秒）**：仍失败在第 5 步。**这里的关键判断是：sdkmanager 的退出码不可信。**
+本机实测——哪怕是完全不存在的包名，它也只打印 `Package ... not found.` 然后**返回 0**。
+既然读不到日志，就换一个不依赖日志的观测手段：在 workflow 里用 `::notice::` 把环境事实
+打成 annotation（公开可读）。结果直接推翻了原先的假设：
+
+| 探针 | 实测值 |
+| --- | --- |
+| `SDKROOT` | `/usr/local/lib/android/sdk` |
+| `CMDLINE` | `Pkg.Revision=22.0`（另有 12.0） |
+| `SDKMANAGER_PATH` | `…/cmdline-tools/22.0/bin/sdkmanager` —— **在 PATH 上，不是命令找不到** |
+| `INSTALLED_PLATFORMS` | 含 **`android-37.1`**（另有 `android-37.0`、`android-37.2`） |
+| `INSTALLED_BUILDTOOLS` | 含 **`37.0.0`** |
+| `SM_INSTALL_TAIL` | 只有废弃警告 + `Loading package information...`，**没有任何报错** |
+
+即：**runner 镜像本来就自带 `platforms/android-37.1` 与 `build-tools/37.0.0`**，
+那一步纯属多余，而 sdkmanager 偏偏在「无事可做」时返回了非零。
+
+**最终修法**：不再无条件调用 sdkmanager，改为
+
+1. 先按**目录**判断三件套是否齐备，齐备就直接跳过安装（当前 runner 走的就是这条路）；
+2. 真的缺了才装，且**安装结果同样以目标目录是否存在为准**，不看 sdkmanager 的退出码。
+
+**结果**：run #5 全绿，11 个步骤全 success，耗时 4 分钟，产物 `comic-wear-apk`
+（15,336,214 字节）上传成功。同一轮里顺手把这些 action 升到当前大版本：
+`checkout` / `setup-java` / `cache` / `upload-artifact` / `download-artifact` → `v5`
+（`setup-java@v4` 已被明确标记废弃，且 v4 系列跑在 node20 上，GitHub 会强制迁移到 node24）。
+
+顺带记录一个环境事实：本机 SDK 的 `sdkmanager` 会警告
 「The SDK Manager CLI tool (sdkmanager) is deprecated. Android CLI will be used instead」，
 替代品是 cmdline-tools 目录下的 `android sdk`。当前仍以警告方式可用，故未切换。
 
