@@ -158,7 +158,7 @@ wearos/
             └─ DownloaderTest.kt
 ```
 
-规模：36 个 Kotlin 文件 / 约 5300 行（不含测试；测试另有 10 个文件 / 约 1400 行）。
+规模：36 个 Kotlin 文件 / 约 5400 行（不含测试；测试另有 11 个文件 / 约 1650 行）。
 
 ---
 
@@ -226,8 +226,13 @@ DataStore 的读取走 `flow`，不存在主线程阻塞死锁。
 | `{apiUrl}{photoPath}`，`<id>`/`<chapter>` 替换 | `buildPhotoUrl` |
 | `GET {api}/config` 返回 `{key: {...}}` 映射，`key` 取自外层 map 键 | `parseSourceConfig` |
 | 输入地址剥掉协议后，请求前补回默认 `https://` | `buildConfigUrl`（见 §4.2） |
-| `using` / `type` 为保留键 | `RESERVED_KEYS` |
-| `detailPath` 必须含 `<id>`、`searchPath` 必须含 `<text>`+`<page>` | 校验并给出 `reason` |
+| `using` / `type` / `__proto__` / `prototype` / `constructor` 为保留键 | `RESERVED_KEYS`（含原型污染键） |
+| 源 key：1–80 字符、首尾无空白、不含路径分隔符/尖括号/控制字符 | `isSourceKey` |
+| `apiUrl` 为 http(s) 基地址；端口 1–65535；IPv4 段 ≤255；禁 `/./` 与 `/../` | `isBaseUrl` |
+| 路径必须以**单个** `/` 开头，禁空白、`#`、`\`，禁目录穿越 | `checkPath` |
+| 占位符白名单：`<id>` `<chapter>` `<text>` `<page>`，且必填项齐全 | `checkPath` |
+| `idType` ∈ `numeric` / `uuid` / `gid_token` / `slug` / `string` | `validateEntry` → `ComicSource.idType` |
+| 输入是否为漫画 ID：按 `idType`，否则按 `type`/`key` 推断（MangaDex→UUID、E-Hentai→`gid_token`、拷贝漫画→slug），都不匹配则 `^\d{1,20}$` | `isComicId` |
 | 图片参数 `width` / `quality` / `ifPNG` | `addImageParams(url, width, quality, usePng)` |
 | 封面固定 `width=80` | `addCoverParams(url, quality, usePng)` |
 | 参数原位替换、不重复追加、保留 `#fragment` | `addUrlParam` |
@@ -241,10 +246,15 @@ DataStore 的读取走 `flow`，不存在主线程阻塞死锁。
    在地址已带 `?` 时会多插一个分隔符，产生 `...jpg?&width=480`。移植版修正为单分隔符。
 2. **丢弃 `ifLVGL` 与 `.bin` 后缀。** 这是 Vela 固件用 LVGL 预解码的私有约定，
    Wear OS 侧由 Coil 解码，无对应能力（详见第 6 节）。
-3. **数字 ID 直连详情的行为保留。** 快应用版 `submitSearch` 用 `/^\d{1,20}$/` 判断
-   输入是否为漫画 ID，是则直接跳详情。移植版在 `ComicRepository.looksLikeComicId`
-   中保留同样语义（1–20 位纯数字）。注意 MangaDex 的实际 ID 是 UUID，
-   因此这条是为了兼容其他自定义源。
+3. **ID 判定改为按源判定，并让显式 `idType` 真正生效。** 快应用版 `submitSearch`
+   用 `/^\d{1,20}$/` 一刀切判断输入是不是漫画 ID，于是 MangaDex 的 UUID、
+   E-Hentai 的 `gid_token`、拷贝漫画的 slug 全被错当成关键词丢去搜索。
+   移植版跟随上游 78919b9 改为按源的 `idType` / `type` / `key` 判定。
+   但上游 `isComicId` 把 key 的通配判断与 `idType` 并排放在同一个 `||` 链里，
+   `key` 含 `mangadex` 时会盖掉显式声明的 `idType`，与它自己文档写的
+   「`idType` 可选…**默认识别**：MangaDex 匹配 UUID」矛盾。移植版按文档语义实现，
+   让显式声明优先——有单测钉住这条分歧（`显式_idType_优先于_key_推断`）。
+   副作用：选中 MangaDex 后输入 `12345` 不再直连一个必然 404 的详情，而是走搜索。
 
 ---
 
@@ -393,22 +403,23 @@ Wear Compose Material3 1.7.0 与手机版差异很大，以下都是**从 AAR �
 
 ### 8.2 自动化测试总览
 
-9 个测试套件 / 74 个用例，全部跑在 JVM 上（不需要真机或模拟器）：
+10 个测试套件 / 91 个用例，全部跑在 JVM 上（不需要真机或模拟器）：
 
 | 套件 | 用例 | 覆盖内容 |
 | --- | --- | --- |
 | `CacheStoreTest` | 19 | 缓存目录布局、索引跨实例持久化、按源隔离、真实文件数重扫、完整/部分判定、目录占用统计 |
+| `SourceConfigTest` | 17 | `/config` 校验规则（key、apiUrl、路径、占位符、保留键）与 `idType` 五种形态的 ID 判定 |
 | `DownloaderTest` | 13 | **起真实 HTTP 服务 + 落真实文件**：整章下载、断点续传、单页重试、确定性 4xx 不重试、整章失败隔离、取消语义 |
 | `ProtocolContractTest` | 11 | 真实报文的协议解析、URL 构造（含补协议回归）、图片参数边界 |
 | `StorePersistenceTest` | 10 | 真实文件读写、跨实例持久化、原子写、损坏自愈 |
 | `AppLaunchTest` | 6 | 真实 Application 启动、容器装配、默认值、UA 形状 |
-| `AppViewModelTest` | 6 | 状态流接线、书架进度、搜索历史、源切换 |
+| `AppViewModelTest` | 6 | 状态流接线、书架进度、搜索历史、源切换、按源判定 ID |
 | `MainActivityRenderTest` | 5 | 真实 Activity 组合渲染（zh-rCN 227dp 圆屏）、首页标题/输入占位/当前源/引导文案/底部双入口 |
 | `SettingsStoreTest` | 3 | DataStore 往返、越界钳制、默认值 |
 | `RobolectricSmokeTest` | 1 | Robolectric 在最简路径上可用 |
 
 ```
-:app:testDebugUnitTest  →  tests=74  failures=0  errors=0  skipped=0
+:app:testDebugUnitTest  →  tests=91  failures=0  errors=0  skipped=0
 ```
 
 ### 8.3 运行时验证（Robolectric）
@@ -560,7 +571,7 @@ cd wearos
 adb install -r wearos\app\build\outputs\apk\debug\app-debug.apk
 ```
 
-单测（74 个用例，JVM 上跑，不需要设备）：
+单测（91 个用例，JVM 上跑，不需要设备）：
 
 ```powershell
 .\gradlew.bat :app:testDebugUnitTest
@@ -640,3 +651,60 @@ files/store/comic_cache.json                      索引
 - 书架封面取的是**进入阅读时抓到的详情封面**；若书籍是从搜索页直接开读的，
   封面字段可能为空（搜索结果的 `cover_url` 与详情 `cover` 是同一地址，
   但当前实现只在详情请求成功后回填）。
+
+---
+
+## 11. 上游同步
+
+### 11.1 仓库拓扑
+
+本仓库 `kxkl2077/bandcomic` 是 [`sf-yuzifu/bandcomic`](https://github.com/sf-yuzifu/bandcomic)
+（Vela OS 快应用原版）的 **fork**，定位改为 Wear OS 原生版。因此 `src/`（快应用源码）
+在本仓库里是**参考实现**，不参与构建；产品代码在 `wearos/`。
+
+首次同步需要挂上上游远程：
+
+```powershell
+git remote add upstream https://github.com/sf-yuzifu/bandcomic.git
+git fetch upstream
+git merge upstream/main
+```
+
+### 11.2 已同步（2026-10，4 个提交）
+
+| 提交 | 内容 | 对本移植的影响 |
+| --- | --- | --- |
+| `78919b9` | [feat(source)] 加固八源运行规则与错误诊断 | **已跟随**，见 11.3 |
+| `4098323` | [style] 重写主要说明文档 | 冲突，按 fork 定位保留本仓库的 Wear OS 版 README |
+| `cf3e4a2` | [ci] 添加 GitHub Actions 自动化发版工作流 | 直接并入（`.github/workflows/release.yml`，面向快应用发版） |
+| `86ffc63` | [ci] 完善工作流 release tag 传参支持 | 直接并入 |
+
+冲突面只有 `README.md` 一个文件：上游把它重写成面向 Vela 设备的产品说明，
+而本仓库的 README 描述 Wear OS 移植（且被要求删去 AstroBox 等 Wear OS 用不上的能力）。
+其余 29 个文件（`src/`、`docs/`、`tools/`、`.github/`）与 `wearos/` 完全不相交，自动合并。
+
+### 11.3 已移植的协议加固（`78919b9`）
+
+上游新增 `src/components/sourceConfig.js`，把源配置校验与 ID 形态判定收成一处。
+本移植在 `wearos/.../data/source/SourceConfig.kt` 里逐条对齐，并由
+`SourceConfigTest`（17 条）覆盖：
+
+- **保留键扩容**：`using`、`type` 之外补上原型污染键 `__proto__`、`prototype`、`constructor`。
+- **key 规则**：1–80 字符、首尾无空白、不含路径分隔符/尖括号/控制字符
+  （key 会进文件系统目录名与 JSON 键位）。
+- **apiUrl 规则**：必须为 http(s) 基地址，端口 1–65535，IPv4 段 ≤255，
+  拒绝 `/./` 与 `/../`。此前只检查了「是不是 http(s) 开头」。
+- **路径规则**：必须以**单个** `/` 开头（`//` 是协议相对地址，会绕开基地址）、
+  禁空白/`#`/`\`、禁目录穿越、占位符限定在 `<id>` `<chapter>` `<text>` `<page>` 且必填项齐全。
+- **`idType`**：`numeric` / `uuid` / `gid_token` / `slug` / `string`，
+  解析进 `ComicSource.idType`（此前该字段被静默丢弃），并驱动 `isComicId`。
+
+**仍未跟随的两项**（属上游文档 `docs/SOURCE_RUNTIME.md` 的运行时约定，实现代价较大）：
+
+1. **429/503 的 `Retry-After` 冷却退避**。上游 `formatApiError` 已解析并回显
+   `Retry-After`；本移植的下载器目前是固定 `1s × 3` 重试，未读取该响应头。
+   要做得先把响应头从 `fetchBytes` 里透出来。
+2. **结构化的错误呈现**。上游会给出 `[源名] [状态码] 描述`（含 HTTP 语义表与 curl 错误码表）；
+   本移植的 `errorText` 仍只映射到「网络连接失败 / 请求失败 / 未知错误」三档。
+   两者都需要新增 `error.http.*` / `error.curl.*` 文案键。
+

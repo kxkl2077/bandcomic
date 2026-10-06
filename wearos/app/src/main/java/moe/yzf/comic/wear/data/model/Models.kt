@@ -15,6 +15,12 @@ data class ComicSource(
     val photoPath: String,
     val searchPath: String,
     val type: String = "",
+    /**
+     * ID 形态声明，决定「输入的是 ID 还是关键词」的判定。
+     * 取值 `numeric` / `uuid` / `gid_token` / `slug` / `string`，空表示按 [type] 或 [key] 推断。
+     * 对齐上游 `sourceConfig.js` 的 `ID_TYPES`。
+     */
+    val idType: String = "",
     /** 出厂内置源标记：用于「删光了就恢复兜底」的判定。 */
     val builtin: Boolean = false,
 )

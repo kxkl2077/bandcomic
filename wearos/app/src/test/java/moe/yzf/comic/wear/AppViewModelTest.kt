@@ -111,15 +111,15 @@ class AppViewModelTest {
     }
 
     @Test
-    fun 疑似漫画ID的输入判断符合快应用版语义() {
+    fun 疑似漫画ID的输入判断跟随当前源的_idType() {
         val repo = app.container.repository
-        assertTrue(repo.looksLikeComicId("12345"))
-        assertTrue(repo.looksLikeComicId("1"))
-        assertTrue(repo.looksLikeComicId("12345678901234567890"))
-        // 超长 / 含非数字 / 空串都应走搜索而不是直连详情。
-        assertTrue(!repo.looksLikeComicId("123456789012345678901"))
+        // 默认源是内置 MangaDex，其 ID 形态是 UUID（上游 sourceConfig.js 的 ID_TYPES 规则）：
+        // 纯数字不再被当成 ID，否则会拿着 12345 去请求一个必然 404 的详情。
+        assertTrue(!repo.looksLikeComicId("12345"))
+        assertTrue(!repo.looksLikeComicId("1"))
         assertTrue(!repo.looksLikeComicId("12a"))
         assertTrue(!repo.looksLikeComicId(""))
-        assertTrue(!repo.looksLikeComicId("595e3a7a-c762-4f87-90ee-a7dc0dabef91"))
+        // MangaDex 的 UUID 才是真 ID，此前会被错当成关键词丢去搜索。
+        assertTrue(repo.looksLikeComicId("595e3a7a-c762-4f87-90ee-a7dc0dabef91"))
     }
 }

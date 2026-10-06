@@ -9,6 +9,7 @@ import moe.yzf.comic.wear.data.model.SearchPage
 import moe.yzf.comic.wear.data.net.ApiErrorType
 import moe.yzf.comic.wear.data.net.ApiException
 import moe.yzf.comic.wear.data.net.ComicApi
+import moe.yzf.comic.wear.data.source.isComicId
 import moe.yzf.comic.wear.data.source.parseSourceConfig
 import moe.yzf.comic.wear.data.store.SourceStore
 
@@ -31,11 +32,12 @@ class ComicRepository(
     fun currentSource(): ComicSource? = sources.current()
 
     /**
-     * 纯数字输入按漫画 ID 直达详情，其余走搜索——对齐快应用版
-     * `index.ux` 中 `submitSearch` 的 `/^\d{1,20}$/` 分支。
+     * 输入的是当前源的漫画 ID，还是应当走关键词搜索。
+     *
+     * 由 [isComicId] 按源的 `idType` / `type` / `key` 判定，不再一律假设「纯数字」：
+     * MangaDex 认 UUID、E-Hentai 认 `gid_token`、拷贝漫画认 slug。对齐上游 78919b9。
      */
-    fun looksLikeComicId(input: String): Boolean =
-        input.length in 1..20 && input.all { it.isDigit() }
+    fun looksLikeComicId(input: String): Boolean = isComicId(input, sources.current())
 
     suspend fun search(keyword: String, page: Int): Result<SearchPage> = guarded {
         val source = requireSource()
