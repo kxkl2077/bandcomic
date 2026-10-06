@@ -54,12 +54,27 @@ jobs:
         with:
           packages: platform-tools
 
+      - name: 诊断 SDK 环境
+        # 日志需要仓库 admin 权限才能读；annotations 是公开的，所以把关键事实
+        # 用 workflow command 打成 annotation，便于定位失败原因。
+        # 本步骤永不失败。
+        run: |
+          SDK="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          echo "::notice title=SDKROOT::${SDK:-EMPTY}"
+          echo "::notice title=CMDLINE::$(cat "$SDK"/cmdline-tools/*/source.properties 2>/dev/null | grep -E 'Pkg.Revision|Pkg.Path' | tr '\n' ' ')"
+          echo "::notice title=SDKMANAGER_PATH::$(command -v sdkmanager || echo MISSING)"
+          echo "::notice title=ANDROID_CLI_PATH::$(command -v android || echo MISSING)"
+          echo "::notice title=INSTALLED_PLATFORMS::$(ls "$SDK"/platforms 2>/dev/null | tr '\n' ' ')"
+          echo "::notice title=INSTALLED_BUILDTOOLS::$(ls "$SDK"/build-tools 2>/dev/null | tr '\n' ' ')"
+          echo "::notice title=LIST_37_COUNT::$(sdkmanager --list 2>/dev/null | grep -c 'android-37')"
+          echo "::notice title=SM_INSTALL_TAIL::$(sdkmanager --install 'platforms/android-37.1' 2>&1 | tail -4 | tr '\n' '|')"
+        continue-on-error: true
+
       - name: 安装 SDK 组件
         # compileSdk = 37 且 compileSdkMinor = 1，必须落到 platforms/android-37.1，
         # 只装 platforms/android-37 是不够的。
-        # 用斜杠形式而非 `platforms;android-37.1`：斜杠形式不含 shell 特殊字符，
-        # 不会被 cmd/PowerShell 之类的外壳按分号拆成 `platforms` 和 `android-37.1`
-        # 两个不存在的包（sdkmanager --list 输出的也正是斜杠形式）。
+        # 用斜杠形式而非 `platforms;android-37.1`：分号会被外壳当成参数分隔符，
+        # 拆成 `platforms` 和 `android-37.1` 两个不存在的包（--list 输出的也是斜杠形式）。
         run: |
           sdkmanager --install "platform-tools" "platforms/android-37.1" "build-tools/37.0.0"
 
